@@ -14,7 +14,9 @@ import {
   ChevronLeft,
   Building2,
   User,
+  LogOut,
 } from 'lucide-react';
+import { useAuth } from '@/lib/AuthContext';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -36,6 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard', active: true },
   { label: 'Vendors', icon: Users, href: '/vendors' },
   { label: "RFQ's", icon: FileText, href: '/rfqs' },
+  { label: 'Create RFQ', icon: FileText, href: '/rfqs/new' },
   { label: 'Quotations', icon: ClipboardList, href: '/quotations' },
   { label: 'Approvals', icon: CheckSquare, href: '/approvals' },
   { label: 'Purchase Orders', icon: ShoppingCart, href: '/purchase-orders' },
@@ -51,6 +54,15 @@ export default function DashboardLayout({
   activePage = 'Dashboard',
 }: DashboardLayoutProps): React.JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const { user, logout } = useAuth();
+
+  // Derive display name from user
+  const displayName = user
+    ? [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email
+    : 'User';
+  const displayRole = user?.role
+    ? user.role.charAt(0) + user.role.slice(1).toLowerCase()
+    : 'User';
 
   return (
     <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
@@ -79,17 +91,28 @@ export default function DashboardLayout({
 
           <div className="h-6 w-px bg-slate-200" />
 
-          <div className="flex items-center gap-2.5 cursor-pointer">
+          <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
               <User className="w-4 h-4 text-emerald-700" />
             </div>
             <div className="hidden sm:block text-right">
               <p className="text-sm font-medium text-slate-700 leading-tight">
-                Admin User
+                {displayName}
               </p>
-              <p className="text-xs text-slate-400 leading-tight">Officer</p>
+              <p className="text-xs text-slate-400 leading-tight">{displayRole}</p>
             </div>
           </div>
+
+          {/* Logout button */}
+          <button
+            type="button"
+            onClick={logout}
+            className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors duration-200 cursor-pointer"
+            aria-label="Logout"
+            title="Logout"
+          >
+            <LogOut className="w-4.5 h-4.5" />
+          </button>
         </div>
       </header>
 

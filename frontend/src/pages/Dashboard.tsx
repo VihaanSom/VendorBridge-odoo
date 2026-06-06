@@ -248,7 +248,7 @@ export default function Dashboard(): React.JSX.Element {
             Dashboard
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Welcome back, Procurement Officer — Today's Overview
+            Welcome back, Procurement Officer - Today's Overview
           </p>
         </div>
 
