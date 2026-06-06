@@ -6,7 +6,6 @@ import {
   FileText,
   ClipboardList,
   CheckSquare,
-  ShoppingCart,
   Receipt,
   BarChart3,
   Activity,
@@ -41,8 +40,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Create RFQ', icon: FileText, href: '/rfqs/new' },
   { label: 'Quotations', icon: ClipboardList, href: '/quotations' },
   { label: 'Approvals', icon: CheckSquare, href: '/approvals' },
-  { label: 'Purchase Orders', icon: ShoppingCart, href: '/purchase-orders' },
-  { label: 'Invoices', icon: Receipt, href: '/invoices' },
+  { label: 'PO & Invoices', icon: Receipt, href: '/invoices' },
   { label: 'Reports', icon: BarChart3, href: '/reports' },
   { label: 'Activity', icon: Activity, href: '/activity' },
 ];
