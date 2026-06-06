@@ -5,7 +5,15 @@ import { Search, Plus, Eye, Users, Filter, Loader2 } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import {
   Table,
   TableBody,
@@ -54,6 +62,27 @@ export default function Vendors(): React.JSX.Element {
   const [error, setError] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeFilter, setActiveFilter] = useState<VendorStatusFilter>('ALL');
+
+  // ── Add Vendor Modal state ──────────────────────────────────────
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+
+  interface NewVendorForm {
+    companyName: string;
+    email: string;
+    gstNumber: string;
+    contactPhone: string;
+    category: string;
+  }
+
+  const INITIAL_FORM: NewVendorForm = {
+    companyName: '',
+    email: '',
+    gstNumber: '',
+    contactPhone: '',
+    category: '',
+  };
+
+  const [newVendorForm, setNewVendorForm] = useState<NewVendorForm>(INITIAL_FORM);
 
   // Fetch vendors from API
   useEffect(() => {
@@ -124,6 +153,42 @@ export default function Vendors(): React.JSX.Element {
     setSearchQuery(e.target.value);
   };
 
+  const handleFormChange = (
+    field: keyof NewVendorForm,
+    value: string
+  ): void => {
+    setNewVendorForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // TODO: BACKEND — Replace this mock insertion with a real call to
+  // POST /api/auth/signup  { role: "VENDOR", email, password: "temp123", companyName, gstNumber, category, contactPhone }
+  // then re-fetch the vendors list via getVendors().
+  const handleAddVendor = (e: React.FormEvent<HTMLFormElement>): void => {
+    e.preventDefault();
+
+    const mockVendor: VendorProfile = {
+      id: `mock-${Date.now()}`,
+      userId: `mock-user-${Date.now()}`,
+      companyName: newVendorForm.companyName,
+      gstNumber: newVendorForm.gstNumber,
+      contactPhone: newVendorForm.contactPhone || null,
+      category: newVendorForm.category,
+      vendorStatus: 'ACTIVE',
+      rating: null,
+      user: {
+        id: `mock-user-${Date.now()}`,
+        email: newVendorForm.email,
+        firstName: null,
+        lastName: null,
+        isActive: true,
+      },
+    };
+
+    setVendors((prev) => [mockVendor, ...prev]);
+    setNewVendorForm(INITIAL_FORM);
+    setIsModalOpen(false);
+  };
+
   return (
     <DashboardLayout activePage="Vendors">
       <motion.div
@@ -142,10 +207,108 @@ export default function Vendors(): React.JSX.Element {
               Manage supplier profiles and registrations
             </p>
           </div>
-          <Button className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-medium rounded-md shadow-sm cursor-pointer transition-all duration-200">
-            <Plus className="w-4 h-4 mr-1.5" />
-            Add Vendor
-          </Button>
+          <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-medium rounded-md shadow-sm cursor-pointer transition-all duration-200">
+                <Plus className="w-4 h-4 mr-1.5" />
+                Add Vendor
+              </Button>
+            </DialogTrigger>
+
+            <DialogContent className="sm:max-w-lg bg-white border border-slate-200 rounded-lg shadow-xl">
+              <DialogHeader>
+                <DialogTitle className="text-lg font-semibold text-slate-900">
+                  Add New Vendor
+                </DialogTitle>
+              </DialogHeader>
+
+              <form onSubmit={handleAddVendor} className="flex flex-col gap-4 mt-4">
+                {/* Company Name */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="vendor-company" className="text-sm font-medium text-slate-700">
+                    Company Name
+                  </Label>
+                  <Input
+                    id="vendor-company"
+                    placeholder="e.g. Acme Supplies Pvt. Ltd."
+                    value={newVendorForm.companyName}
+                    onChange={(e) => handleFormChange('companyName', e.target.value)}
+                    required
+                    className="h-10 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md"
+                  />
+                </div>
+
+                {/* Email */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="vendor-email" className="text-sm font-medium text-slate-700">
+                    Email Address
+                  </Label>
+                  <Input
+                    id="vendor-email"
+                    type="email"
+                    placeholder="vendor@company.com"
+                    value={newVendorForm.email}
+                    onChange={(e) => handleFormChange('email', e.target.value)}
+                    required
+                    className="h-10 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md"
+                  />
+                </div>
+
+                {/* GST + Contact (2-col) */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="vendor-gst" className="text-sm font-medium text-slate-700">
+                      GST Number
+                    </Label>
+                    <Input
+                      id="vendor-gst"
+                      placeholder="22AAAAA0000A1Z5"
+                      value={newVendorForm.gstNumber}
+                      onChange={(e) => handleFormChange('gstNumber', e.target.value)}
+                      required
+                      className="h-10 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="vendor-phone" className="text-sm font-medium text-slate-700">
+                      Contact Number
+                    </Label>
+                    <Input
+                      id="vendor-phone"
+                      type="tel"
+                      placeholder="+91 98765 43210"
+                      value={newVendorForm.contactPhone}
+                      onChange={(e) => handleFormChange('contactPhone', e.target.value)}
+                      className="h-10 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md"
+                    />
+                  </div>
+                </div>
+
+                {/* Category */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="vendor-category" className="text-sm font-medium text-slate-700">
+                    Category
+                  </Label>
+                  <Input
+                    id="vendor-category"
+                    placeholder="e.g. IT Hardware, Office Supplies"
+                    value={newVendorForm.category}
+                    onChange={(e) => handleFormChange('category', e.target.value)}
+                    required
+                    className="h-10 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md"
+                  />
+                </div>
+
+                {/* Submit */}
+                <Button
+                  type="submit"
+                  className="w-full h-10 mt-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-semibold rounded-md shadow-sm cursor-pointer transition-all duration-200"
+                >
+                  Save Vendor
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* ── Search Bar ──────────────────────────────────────────── */}
