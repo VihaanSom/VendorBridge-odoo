@@ -11,10 +11,12 @@ const { generatePoNumber } = require('../utils/financials.utils');
 const getPendingApprovals = async (approverId) => {
   const approvals = await prisma.approval.findMany({
     where: {
-      approverId,
-      status: 'PENDING',
+      status: 'PENDING'
     },
     include: {
+      approver: {
+        select: { firstName: true, lastName: true, email: true, role: true },
+      },
       quotation: {
         include: {
           rfq: {
