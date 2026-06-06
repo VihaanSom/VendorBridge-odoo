@@ -33,6 +33,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { apiGet } from '@/lib/api';
+import { useAuth } from '@/lib/AuthContext';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -140,6 +141,7 @@ interface APIPurchaseOrder {
 // ── Component ───────────────────────────────────────────────────────
 
 export default function Dashboard(): React.JSX.Element {
+  const { user } = useAuth();
   const [metrics, setMetrics] = useState<DashboardMetrics>(MOCK_METRICS);
   const [recentPOs, setRecentPOs] = useState<RecentPurchaseOrder[]>(MOCK_PURCHASE_ORDERS);
   const [spendingData] = useState<SpendingDataPoint[]>(MOCK_SPENDING_DATA);
@@ -248,7 +250,7 @@ export default function Dashboard(): React.JSX.Element {
             Dashboard
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Welcome back, Procurement Officer - Today's Overview
+            Welcome back{user ? `, ${user.firstName || user.email}` : ''} - Today's Overview
           </p>
         </div>
 

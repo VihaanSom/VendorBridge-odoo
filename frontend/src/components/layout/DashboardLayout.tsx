@@ -6,7 +6,6 @@ import {
   FileText,
   ClipboardList,
   CheckSquare,
-  ShoppingCart,
   Receipt,
   BarChart3,
   Activity,
@@ -20,11 +19,13 @@ import { useAuth } from '@/lib/AuthContext';
 
 // ── Types ───────────────────────────────────────────────────────────
 
+type UserRole = 'ADMIN' | 'OFFICER' | 'VENDOR' | 'APPROVER';
+
 interface NavItem {
   label: string;
   icon: React.ElementType;
   href: string;
-  active?: boolean;
+  roles: UserRole[];
 }
 
 interface DashboardLayoutProps {
@@ -32,19 +33,18 @@ interface DashboardLayoutProps {
   activePage?: string;
 }
 
-// ── Navigation Config ───────────────────────────────────────────────
+// ── Navigation Config (role-gated) ──────────────────────────────────
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard', active: true },
-  { label: 'Vendors', icon: Users, href: '/vendors' },
-  { label: "RFQ's", icon: FileText, href: '/rfqs' },
-  { label: 'Create RFQ', icon: FileText, href: '/rfqs/new' },
-  { label: 'Quotations', icon: ClipboardList, href: '/quotations' },
-  { label: 'Approvals', icon: CheckSquare, href: '/approvals' },
-  { label: 'Purchase Orders', icon: ShoppingCart, href: '/purchase-orders' },
-  { label: 'Invoices', icon: Receipt, href: '/invoices' },
-  { label: 'Reports', icon: BarChart3, href: '/reports' },
-  { label: 'Activity', icon: Activity, href: '/activity' },
+  { label: 'Dashboard',  icon: LayoutDashboard, href: '/dashboard',  roles: ['ADMIN','OFFICER','VENDOR','APPROVER'] },
+  { label: 'Vendors',    icon: Users,           href: '/vendors',    roles: ['ADMIN','OFFICER'] },
+  { label: "RFQ's",      icon: FileText,        href: '/rfqs',       roles: ['ADMIN','OFFICER','VENDOR'] },
+  { label: 'Create RFQ', icon: FileText,        href: '/rfqs/new',   roles: ['OFFICER'] },
+  { label: 'Quotations', icon: ClipboardList,   href: '/quotations', roles: ['ADMIN','OFFICER','VENDOR'] },
+  { label: 'Approvals',  icon: CheckSquare,     href: '/approvals',  roles: ['ADMIN','APPROVER'] },
+  { label: 'Invoices',   icon: Receipt,         href: '/invoices',   roles: ['ADMIN','OFFICER','VENDOR'] },
+  { label: 'Reports',    icon: BarChart3,       href: '/reports',    roles: ['ADMIN','OFFICER'] },
+  { label: 'Activity',   icon: Activity,        href: '/activity',   roles: ['ADMIN','OFFICER','APPROVER'] },
 ];
 
 // ── Component ───────────────────────────────────────────────────────
@@ -141,7 +141,7 @@ export default function DashboardLayout({
 
           {/* Navigation Links */}
           <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
-            {NAV_ITEMS.map((item) => {
+            {NAV_ITEMS.filter((item) => !user?.role || item.roles.includes(user.role as UserRole)).map((item) => {
               const isActive = item.label === activePage;
               const Icon = item.icon;
 

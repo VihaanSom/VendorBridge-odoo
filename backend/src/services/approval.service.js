@@ -15,6 +15,9 @@ const getPendingApprovals = async (approverId) => {
       status: 'PENDING',
     },
     include: {
+      approver: {
+        select: { id: true, firstName: true, lastName: true, email: true, role: true },
+      },
       quotation: {
         include: {
           rfq: {
@@ -40,7 +43,7 @@ const getPendingApprovals = async (approverId) => {
         },
       },
     },
-    orderBy: { quotation: { submittedAt: 'desc' } },
+    orderBy: { createdAt: 'desc' },
   });
 
   // Enrich each approval with the computed totalPrice

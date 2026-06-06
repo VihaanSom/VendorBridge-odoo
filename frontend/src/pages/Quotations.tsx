@@ -4,7 +4,6 @@ import {
   Send,
   CheckCircle2,
   Star,
-  ArrowRightLeft,
   FileText,
   Loader2,
 } from 'lucide-react';
@@ -40,7 +39,7 @@ interface VendorQuote {
   isLowest?: boolean;
 }
 
-type ViewRole = 'VENDOR' | 'OFFICER';
+
 
 // ── API Types ───────────────────────────────────────────────────────
 
@@ -654,46 +653,18 @@ function CompareQuotationsView(): React.JSX.Element {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// PARENT — Quotations Page
+// PARENT — Quotations Page (auto-detects role from JWT)
 // ═══════════════════════════════════════════════════════════════════
 
+import { useAuth } from '@/lib/AuthContext';
+
 export default function Quotations(): React.JSX.Element {
-  const [viewRole, setViewRole] = useState<ViewRole>('VENDOR');
+  const { user } = useAuth();
+  const role = user?.role ?? 'VENDOR';
 
   return (
     <DashboardLayout activePage="Quotations">
-      {/* Role Toggle (Demo) */}
-      <div className="flex items-center justify-end mb-4">
-        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg p-1 shadow-sm">
-          <button
-            type="button"
-            onClick={() => setViewRole('VENDOR')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 cursor-pointer ${
-              viewRole === 'VENDOR'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            <Send className="w-3 h-3" />
-            Vendor View
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewRole('OFFICER')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 cursor-pointer ${
-              viewRole === 'OFFICER'
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            <ArrowRightLeft className="w-3 h-3" />
-            Officer View
-          </button>
-        </div>
-      </div>
-
-      {/* Conditional View */}
-      {viewRole === 'VENDOR' ? (
+      {role === 'VENDOR' ? (
         <SubmitQuotationView />
       ) : (
         <CompareQuotationsView />
