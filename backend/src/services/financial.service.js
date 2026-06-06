@@ -233,7 +233,7 @@ const getInvoicePdf = async (invoiceId) => {
     createdAt: invoice.createdAt,
   };
 
-  const buffer = generatePdf(pdfData);
+  const buffer = await generatePdf(pdfData);
   return { buffer, invoice };
 };
 
@@ -274,10 +274,16 @@ const emailInvoiceToVendor = async (invoiceId) => {
   const invoiceData = {
     invoiceNumber: invoice.invoiceNumber,
     vendorName: invoice.po.quotation.vendor.companyName,
+    rfqTitle: invoice.po.quotation.rfq.title,
+    subtotal: invoice.subtotal,
+    taxPercentage: invoice.taxPercentage,
+    taxAmount: invoice.taxAmount,
     totalAmount: invoice.totalAmount,
+    items: invoice.po.quotation.items,
+    createdAt: invoice.createdAt,
   };
 
-  // Call email placeholder
+  // Call real SMTP email with PDF attachment
   await emailInvoice(invoiceData, vendorEmail);
 
   // Update emailed_at timestamp

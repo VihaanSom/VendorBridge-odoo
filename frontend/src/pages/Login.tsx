@@ -304,6 +304,9 @@ export default function Login(): React.JSX.Element {
                   <Link
                     to="/register"
                     className="text-emerald-600 font-medium hover:underline transition-colors duration-200"
+                    to="/forgot-password"
+                    className="text-xs font-medium text-emerald-600 hover:text-emerald-700 transition-colors duration-200"
+                    tabIndex={-1}
                   >
                     Register
                   </Link>

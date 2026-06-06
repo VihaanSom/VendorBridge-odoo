@@ -1,8 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Send,
-  Save,
   CheckCircle2,
   Star,
   ArrowRightLeft,
@@ -16,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { apiGet, apiPost, apiPatch } from '@/lib/api';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -25,10 +25,12 @@ interface QuotationItem {
   qty: number;
   unitPrice: number;
   deliveryDays: number;
+  rfqItemId: string;
 }
 
 interface VendorQuote {
   vendorId: string;
+  quotationId: string;
   vendorName: string;
   grandTotal: number;
   gstPercent: number;
@@ -40,43 +42,45 @@ interface VendorQuote {
 
 type ViewRole = 'VENDOR' | 'OFFICER';
 
-// ── Mock Data ───────────────────────────────────────────────────────
+// ── API Types ───────────────────────────────────────────────────────
 
-const INITIAL_ITEMS: QuotationItem[] = [
-  { id: 'qi-1', item: 'Ergonomic Chair', qty: 25, unitPrice: 0, deliveryDays: 0 },
-  { id: 'qi-2', item: 'Standing Desk', qty: 10, unitPrice: 0, deliveryDays: 0 },
-];
+interface APIRfq {
+  id: string;
+  title: string;
+  deadline: string;
+  status: string;
+  items: Array<{
+    id: string;
+    itemName: string;
+    quantity: number;
+    unitOfMeasure: string;
+  }>;
+}
 
-const MOCK_VENDOR_QUOTES: VendorQuote[] = [
-  {
-    vendorId: 'V-001',
-    vendorName: 'Infra Supplies Pvt Ltd',
-    grandTotal: 236800,
-    gstPercent: 18,
-    deliveryDays: 12,
-    rating: '4.5 / 5',
-    paymentTerms: 'Net 30',
-    isLowest: true,
-  },
-  {
-    vendorId: 'V-002',
-    vendorName: 'TechCore LTD',
-    grandTotal: 289450,
-    gstPercent: 18,
-    deliveryDays: 18,
-    rating: '4.2 / 5',
-    paymentTerms: 'Net 45',
-  },
-  {
-    vendorId: 'V-003',
-    vendorName: 'OfficeNeed Co.',
-    grandTotal: 312000,
-    gstPercent: 18,
-    deliveryDays: 10,
-    rating: '3.8 / 5',
-    paymentTerms: 'Net 15',
-  },
-];
+interface APIQuotation {
+  id: string;
+  vendorId: string;
+  deliveryTimelineDays: number;
+  totalPrice: number;
+  status: string;
+  vendor: {
+    companyName: string;
+    rating: string | null;
+    user: { firstName: string | null; lastName: string | null };
+  };
+  items: Array<{
+    unitPrice: string;
+    rfqItem: { itemName: string; quantity: number };
+  }>;
+}
+
+interface APIUser {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  role: string;
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -93,10 +97,57 @@ function formatCurrency(amount: number): string {
 // ═══════════════════════════════════════════════════════════════════
 
 function SubmitQuotationView(): React.JSX.Element {
-  const [items, setItems] = useState<QuotationItem[]>(INITIAL_ITEMS);
-  const [gstPercent, setGstPercent] = useState<number>(18);
+  const [rfqs, setRfqs] = useState<APIRfq[]>([]);
+  const [selectedRfq, setSelectedRfq] = useState<APIRfq | null>(null);
+  const [items, setItems] = useState<QuotationItem[]>([]);
+  const [deliveryDays, setDeliveryDays] = useState<number>(14);
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submitMsg, setSubmitMsg] = useState<string>('');
+
+  // Fetch RFQs the vendor is invited to
+  useEffect(() => {
+    const fetchRfqs = async (): Promise<void> => {
+      try {
+        const data = await apiGet<APIRfq[]>('/rfqs');
+        const activeRfqs = data.filter((r) => r.status === 'ACTIVE');
+        setRfqs(activeRfqs);
+        if (activeRfqs.length > 0 && activeRfqs[0]) {
+          setSelectedRfq(activeRfqs[0]);
+          setItems(
+            activeRfqs[0].items.map((it) => ({
+              id: it.id,
+              item: it.itemName,
+              qty: it.quantity,
+              unitPrice: 0,
+              deliveryDays: 0,
+              rfqItemId: it.id,
+            }))
+          );
+        }
+      } catch {
+        // No RFQs available or not authenticated — show empty form
+      }
+    };
+    void fetchRfqs();
+  }, []);
+
+  const handleRfqSelect = (rfqId: string): void => {
+    const rfq = rfqs.find((r) => r.id === rfqId);
+    if (rfq) {
+      setSelectedRfq(rfq);
+      setItems(
+        rfq.items.map((it) => ({
+          id: it.id,
+          item: it.itemName,
+          qty: it.quantity,
+          unitPrice: 0,
+          deliveryDays: 0,
+          rfqItemId: it.id,
+        }))
+      );
+    }
+  };
 
   const handleItemChange = (
     id: string,
@@ -115,46 +166,27 @@ function SubmitQuotationView(): React.JSX.Element {
     [items]
   );
 
-  const gstAmount = useMemo(
-    () => Math.round(subtotal * (gstPercent / 100)),
-    [subtotal, gstPercent]
-  );
-
-  const grandTotal = useMemo(() => subtotal + gstAmount, [subtotal, gstAmount]);
+  const grandTotal = useMemo(() => subtotal, [subtotal]);
 
   // ── Submit ────────────────────────────────────────────────────────
 
-  const handleSubmit = async (isDraft: boolean): Promise<void> => {
+  const handleSubmit = async (): Promise<void> => {
+    if (!selectedRfq) return;
     setIsSubmitting(true);
+    setSubmitMsg('');
     try {
-      const payload = {
-        rfqId: 'RFQ-001',
-        items: items.map(({ item, qty, unitPrice, deliveryDays }) => ({
-          item,
-          qty,
-          unitPrice,
-          total: qty * unitPrice,
-          deliveryDays,
-        })),
-        gstPercent,
-        subtotal,
-        gstAmount,
-        grandTotal,
+      await apiPost('/quotations', {
+        rfqId: selectedRfq.id,
+        deliveryTimelineDays: deliveryDays,
         notes,
-        status: isDraft ? 'DRAFT' : 'SUBMITTED',
-      };
-
-      // TODO: Replace with actual API call
-      const res: Response = await fetch('http://localhost:5000/api/quotations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        items: items.map((it) => ({
+          rfqItemId: it.rfqItemId,
+          unitPrice: it.unitPrice,
+        })),
       });
-
-      if (!res.ok) throw new Error('Failed to submit quotation');
-      // TODO: navigate to quotation list or show success toast
-    } catch {
-      // TODO: Show error toast
+      setSubmitMsg('✓ Quotation submitted successfully!');
+    } catch (err) {
+      setSubmitMsg(`✗ ${err instanceof Error ? err.message : 'Failed to submit'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -173,109 +205,95 @@ function SubmitQuotationView(): React.JSX.Element {
           Submit Quotation
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          RFQ: Office Furniture Procurement Q2 — Deadline 15 June 2025
+          {selectedRfq
+            ? `RFQ: ${selectedRfq.title} — Deadline ${new Date(selectedRfq.deadline).toLocaleDateString()}`
+            : 'Select an RFQ to submit a quotation'}
         </p>
       </div>
 
-      {/* RFQ Summary */}
-      <Card className="border border-slate-200 shadow-sm bg-white rounded-lg">
-        <CardContent className="px-5 py-4">
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5">
-              <FileText className="w-4.5 h-4.5 text-indigo-600" />
+      {/* RFQ Selector */}
+      {rfqs.length > 0 && (
+        <Card className="border border-slate-200 shadow-sm bg-white rounded-lg">
+          <CardContent className="px-5 py-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5">
+                <FileText className="w-4.5 h-4.5 text-indigo-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-slate-800">Select RFQ</p>
+                <select
+                  value={selectedRfq?.id ?? ''}
+                  onChange={(e) => handleRfqSelect(e.target.value)}
+                  className="mt-2 w-full h-9 border border-slate-200 rounded-md px-3 text-sm bg-white focus:ring-emerald-500 focus:border-emerald-500"
+                >
+                  {rfqs.map((rfq) => (
+                    <option key={rfq.id} value={rfq.id}>
+                      {rfq.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-800">RFQ Summary</p>
-              <p className="text-sm text-slate-500 mt-0.5">
-                Ergonomic Chair × 25, Standing Desk × 10 — Category: Furniture
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Quotation Table */}
-      <Card className="border border-slate-200 shadow-sm bg-white rounded-lg overflow-hidden">
-        <CardContent className="p-0">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50/80">
-                <th className="text-left text-xs font-medium uppercase tracking-wider text-slate-500 px-5 py-3">
-                  Item
-                </th>
-                <th className="text-center text-xs font-medium uppercase tracking-wider text-slate-500 px-3 py-3 w-20">
-                  Qty
-                </th>
-                <th className="text-center text-xs font-medium uppercase tracking-wider text-slate-500 px-3 py-3 w-36">
-                  Unit Price (₹)
-                </th>
-                <th className="text-right text-xs font-medium uppercase tracking-wider text-slate-500 px-3 py-3 w-32">
-                  Total
-                </th>
-                <th className="text-center text-xs font-medium uppercase tracking-wider text-slate-500 px-5 py-3 w-32">
-                  Delivery (days)
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {items.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50/60 transition-colors duration-150">
-                  <td className="px-5 py-3 text-sm font-medium text-slate-900">
-                    {item.item}
-                  </td>
-                  <td className="px-3 py-3 text-sm text-slate-700 text-center tabular-nums">
-                    {item.qty}
-                  </td>
-                  <td className="px-3 py-3">
-                    <Input
-                      type="number"
-                      min={0}
-                      value={item.unitPrice || ''}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        handleItemChange(item.id, 'unitPrice', parseFloat(e.target.value) || 0)
-                      }
-                      placeholder="0"
-                      className="h-9 border-slate-200 bg-white text-sm text-center rounded-md focus-visible:ring-emerald-500 focus-visible:border-emerald-500 tabular-nums"
-                    />
-                  </td>
-                  <td className="px-3 py-3 text-sm font-medium text-slate-900 text-right tabular-nums">
-                    {formatCurrency(item.qty * item.unitPrice)}
-                  </td>
-                  <td className="px-5 py-3">
-                    <Input
-                      type="number"
-                      min={0}
-                      value={item.deliveryDays || ''}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        handleItemChange(item.id, 'deliveryDays', parseInt(e.target.value, 10) || 0)
-                      }
-                      placeholder="0"
-                      className="h-9 border-slate-200 bg-white text-sm text-center rounded-md focus-visible:ring-emerald-500 focus-visible:border-emerald-500 tabular-nums"
-                    />
-                  </td>
+      {items.length > 0 && (
+        <Card className="border border-slate-200 shadow-sm bg-white rounded-lg overflow-hidden">
+          <CardContent className="p-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50/80">
+                  <th className="text-left text-xs font-medium uppercase tracking-wider text-slate-500 px-5 py-3">Item</th>
+                  <th className="text-center text-xs font-medium uppercase tracking-wider text-slate-500 px-3 py-3 w-20">Qty</th>
+                  <th className="text-center text-xs font-medium uppercase tracking-wider text-slate-500 px-3 py-3 w-36">Unit Price (₹)</th>
+                  <th className="text-right text-xs font-medium uppercase tracking-wider text-slate-500 px-3 py-3 w-32">Total</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {items.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50/60 transition-colors duration-150">
+                    <td className="px-5 py-3 text-sm font-medium text-slate-900">{item.item}</td>
+                    <td className="px-3 py-3 text-sm text-slate-700 text-center tabular-nums">{item.qty}</td>
+                    <td className="px-3 py-3">
+                      <Input
+                        type="number"
+                        min={0}
+                        value={item.unitPrice || ''}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                          handleItemChange(item.id, 'unitPrice', parseFloat(e.target.value) || 0)
+                        }
+                        placeholder="0"
+                        className="h-9 border-slate-200 bg-white text-sm text-center rounded-md focus-visible:ring-emerald-500 focus-visible:border-emerald-500 tabular-nums"
+                      />
+                    </td>
+                    <td className="px-3 py-3 text-sm font-medium text-slate-900 text-right tabular-nums">
+                      {formatCurrency(item.qty * item.unitPrice)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Bottom Section: Tax/Notes + Order Summary */}
+      {/* Bottom Section: Notes + Order Summary */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Tax & Notes */}
+        {/* Left: Delivery & Notes */}
         <div className="space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="gstPercent" className="text-sm font-medium text-slate-700">
-              Tax / GST %
+            <Label htmlFor="deliveryDays" className="text-sm font-medium text-slate-700">
+              Delivery Timeline (days)
             </Label>
             <Input
-              id="gstPercent"
+              id="deliveryDays"
               type="number"
-              min={0}
-              max={100}
-              value={gstPercent}
+              min={1}
+              value={deliveryDays}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setGstPercent(parseFloat(e.target.value) || 0)
+                setDeliveryDays(parseInt(e.target.value, 10) || 1)
               }
               className="h-11 w-32 border-slate-200 bg-slate-50/60 text-sm text-slate-900 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md tabular-nums"
             />
@@ -308,12 +326,6 @@ function SubmitQuotationView(): React.JSX.Element {
                   {formatCurrency(subtotal)}
                 </span>
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">GST ({gstPercent}%)</span>
-                <span className="font-medium text-slate-900 tabular-nums">
-                  {formatCurrency(gstAmount)}
-                </span>
-              </div>
               <div className="border-t border-slate-200 pt-3 flex items-center justify-between">
                 <span className="text-base font-semibold text-slate-900">Grand Total</span>
                 <span className="text-xl font-bold text-emerald-700 tabular-nums">
@@ -322,12 +334,18 @@ function SubmitQuotationView(): React.JSX.Element {
               </div>
             </div>
 
+            {submitMsg && (
+              <p className={`mt-3 text-sm font-medium ${submitMsg.startsWith('✓') ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {submitMsg}
+              </p>
+            )}
+
             {/* Action Buttons */}
             <div className="mt-6 space-y-3">
               <Button
                 type="button"
                 disabled={isSubmitting || subtotal === 0}
-                onClick={() => void handleSubmit(false)}
+                onClick={() => void handleSubmit()}
                 className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-semibold rounded-md shadow-sm cursor-pointer transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
@@ -342,16 +360,6 @@ function SubmitQuotationView(): React.JSX.Element {
                   </span>
                 )}
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={isSubmitting}
-                onClick={() => void handleSubmit(true)}
-                className="w-full h-11 border-slate-200 text-slate-700 hover:bg-slate-50 text-sm font-semibold rounded-md cursor-pointer transition-all duration-200"
-              >
-                <Save className="w-4 h-4 mr-2" />
-                Save Draft
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -365,24 +373,80 @@ function SubmitQuotationView(): React.JSX.Element {
 // ═══════════════════════════════════════════════════════════════════
 
 function CompareQuotationsView(): React.JSX.Element {
+  const [rfqs, setRfqs] = useState<APIRfq[]>([]);
+  const [selectedRfqId, setSelectedRfqId] = useState<string>('');
+  const [quotes, setQuotes] = useState<VendorQuote[]>([]);
+  const [approvers, setApprovers] = useState<APIUser[]>([]);
+  const [selectedApprover, setSelectedApprover] = useState<string>('');
   const [isApproving, setIsApproving] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<string>('');
 
-  const handleSelectApprove = async (vendorId: string): Promise<void> => {
-    setIsApproving(vendorId);
-    try {
-      // TODO: Replace with actual API call
-      const res: Response = await fetch(
-        `http://localhost:5000/api/quotations/${vendorId}/status`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'UNDER_REVIEW' }),
+  // Fetch RFQs
+  useEffect(() => {
+    const fetchRfqs = async (): Promise<void> => {
+      try {
+        const data = await apiGet<APIRfq[]>('/rfqs');
+        setRfqs(data.filter((r) => r.status === 'ACTIVE' || r.status === 'CLOSED'));
+        if (data.length > 0 && data[0]) {
+          setSelectedRfqId(data[0].id);
         }
-      );
-      if (!res.ok) throw new Error('Failed to update status');
-      // TODO: Show success toast and navigate
-    } catch {
-      // TODO: Show error toast
+      } catch { /* fallback */ }
+    };
+    void fetchRfqs();
+  }, []);
+
+  // Fetch approvers (users with APPROVER role)
+  useEffect(() => {
+    const fetchApprovers = async (): Promise<void> => {
+      try {
+        const users = await apiGet<APIUser[]>('/directory/users?role=APPROVER');
+        setApprovers(users);
+        if (users.length > 0 && users[0]) {
+          setSelectedApprover(users[0].id);
+        }
+      } catch { /* fallback */ }
+    };
+    void fetchApprovers();
+  }, []);
+
+  // Fetch quotations when RFQ changes
+  useEffect(() => {
+    if (!selectedRfqId) return;
+    const fetchQuotes = async (): Promise<void> => {
+      try {
+        const data = await apiGet<APIQuotation[]>(`/quotations/rfq/${selectedRfqId}`);
+        const lowest = Math.min(...data.map((q) => q.totalPrice));
+        const mapped: VendorQuote[] = data.map((q) => ({
+          vendorId: q.vendorId,
+          quotationId: q.id,
+          vendorName: q.vendor.companyName,
+          grandTotal: q.totalPrice,
+          gstPercent: 18,
+          deliveryDays: q.deliveryTimelineDays,
+          rating: q.vendor.rating ? `${q.vendor.rating} / 5` : 'N/A',
+          paymentTerms: 'Net 30',
+          isLowest: q.totalPrice === lowest,
+        }));
+        setQuotes(mapped);
+      } catch { /* fallback */ }
+    };
+    void fetchQuotes();
+  }, [selectedRfqId]);
+
+  const handleSelectApprove = async (quotationId: string): Promise<void> => {
+    if (!selectedApprover) {
+      setActionMsg('Please select an approver first.');
+      return;
+    }
+    setIsApproving(quotationId);
+    setActionMsg('');
+    try {
+      await apiPatch(`/quotations/${quotationId}/status`, {
+        approverId: selectedApprover,
+      });
+      setActionMsg('✓ Quotation sent for approval!');
+    } catch (err) {
+      setActionMsg(`✗ ${err instanceof Error ? err.message : 'Failed to send for approval'}`);
     } finally {
       setIsApproving(null);
     }
@@ -405,149 +469,176 @@ function CompareQuotationsView(): React.JSX.Element {
       className="space-y-6"
     >
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-          Quotation Comparison
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          RFQ: Office Furniture Procurement Q2 — 3 quotations received
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Quotation Comparison
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {quotes.length} quotation(s) received
+          </p>
+        </div>
       </div>
 
+      {/* RFQ Selector + Approver Selector */}
+      <div className="flex items-center gap-4 flex-wrap">
+        {rfqs.length > 0 && (
+          <div>
+            <Label className="text-xs font-medium text-slate-500 mb-1 block">Select RFQ</Label>
+            <select
+              value={selectedRfqId}
+              onChange={(e) => setSelectedRfqId(e.target.value)}
+              className="h-9 border border-slate-200 rounded-md px-3 text-sm bg-white focus:ring-emerald-500"
+            >
+              {rfqs.map((rfq) => (
+                <option key={rfq.id} value={rfq.id}>{rfq.title}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {approvers.length > 0 && (
+          <div>
+            <Label className="text-xs font-medium text-slate-500 mb-1 block">Send to Approver</Label>
+            <select
+              value={selectedApprover}
+              onChange={(e) => setSelectedApprover(e.target.value)}
+              className="h-9 border border-slate-200 rounded-md px-3 text-sm bg-white focus:ring-emerald-500"
+            >
+              {approvers.map((u) => (
+                <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.email})</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {actionMsg && (
+        <p className={`text-sm font-medium ${actionMsg.startsWith('✓') ? 'text-emerald-600' : 'text-rose-600'}`}>
+          {actionMsg}
+        </p>
+      )}
+
       {/* Comparison Matrix */}
-      <Card className="border border-slate-200 shadow-sm bg-white rounded-lg overflow-hidden">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50/80">
-                  <th className="text-left text-xs font-medium uppercase tracking-wider text-slate-500 px-5 py-4 w-44 min-w-44">
-                    Criteria
-                  </th>
-                  {MOCK_VENDOR_QUOTES.map((vendor) => (
-                    <th
-                      key={vendor.vendorId}
-                      className={`text-center px-5 py-4 min-w-48 ${
-                        vendor.isLowest
-                          ? 'bg-emerald-50 border-x-2 border-t-2 border-emerald-500'
-                          : ''
-                      }`}
-                    >
-                      <div className="flex flex-col items-center gap-1">
-                        <span
-                          className={`text-sm font-semibold ${
-                            vendor.isLowest ? 'text-emerald-800' : 'text-slate-800'
-                          }`}
-                        >
-                          {vendor.vendorName}
-                        </span>
-                        {vendor.isLowest && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
-                            <CheckCircle2 className="w-3 h-3" />
-                            Lowest
-                          </span>
-                        )}
-                      </div>
+      {quotes.length > 0 ? (
+        <Card className="border border-slate-200 shadow-sm bg-white rounded-lg overflow-hidden">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50/80">
+                    <th className="text-left text-xs font-medium uppercase tracking-wider text-slate-500 px-5 py-4 w-44 min-w-44">
+                      Criteria
                     </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {criteriaRows.map((row) => (
-                  <tr key={row.label || 'action'}>
-                    {/* Criteria Label */}
-                    <td className="px-5 py-4 text-sm font-medium text-slate-700 bg-slate-50/40">
-                      {row.key !== 'action' && row.label}
-                    </td>
-
-                    {/* Vendor Values */}
-                    {MOCK_VENDOR_QUOTES.map((vendor) => {
-                      const isWinner = vendor.isLowest;
-                      const cellBg = isWinner
-                        ? 'bg-emerald-50 border-x-2 border-emerald-500'
-                        : '';
-                      const lastRowBorder =
-                        row.key === 'action' && isWinner
-                          ? 'border-b-2 border-emerald-500'
-                          : '';
-
-                      if (row.key === 'action') {
-                        return (
-                          <td
-                            key={vendor.vendorId}
-                            className={`px-5 py-4 text-center ${cellBg} ${lastRowBorder}`}
-                          >
-                            {isWinner ? (
-                              <Button
-                                type="button"
-                                disabled={isApproving === vendor.vendorId}
-                                onClick={() => void handleSelectApprove(vendor.vendorId)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-md shadow-sm cursor-pointer transition-all duration-200 disabled:opacity-60"
-                              >
-                                {isApproving === vendor.vendorId ? (
-                                  <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
-                                ) : (
-                                  <CheckCircle2 className="w-4 h-4 mr-1.5" />
-                                )}
-                                Select & Approve
-                              </Button>
-                            ) : (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={isApproving === vendor.vendorId}
-                                onClick={() => void handleSelectApprove(vendor.vendorId)}
-                                className="border-slate-200 text-slate-700 hover:bg-slate-50 text-sm font-medium rounded-md cursor-pointer transition-all duration-200"
-                              >
-                                Select
-                              </Button>
-                            )}
-                          </td>
-                        );
-                      }
-
-                      let displayValue: string;
-                      if (row.key === 'grandTotal') {
-                        displayValue = formatCurrency(vendor[row.key] as number);
-                      } else if (row.key === 'gstPercent') {
-                        displayValue = `${vendor[row.key]}%`;
-                      } else if (row.key === 'deliveryDays') {
-                        displayValue = `${vendor[row.key]} days`;
-                      } else {
-                        displayValue = String(vendor[row.key]);
-                      }
-
-                      return (
-                        <td
-                          key={vendor.vendorId}
-                          className={`px-5 py-4 text-center ${cellBg}`}
-                        >
+                    {quotes.map((vendor) => (
+                      <th
+                        key={vendor.quotationId}
+                        className={`text-center px-5 py-4 min-w-48 ${
+                          vendor.isLowest
+                            ? 'bg-emerald-50 border-x-2 border-t-2 border-emerald-500'
+                            : ''
+                        }`}
+                      >
+                        <div className="flex flex-col items-center gap-1">
                           <span
-                            className={`text-sm tabular-nums ${
-                              row.key === 'grandTotal'
-                                ? `text-base font-bold ${isWinner ? 'text-emerald-700' : 'text-slate-900'}`
-                                : row.key === 'rating'
-                                  ? 'font-medium text-amber-600'
-                                  : isWinner
-                                    ? 'font-medium text-emerald-800'
-                                    : 'font-medium text-slate-700'
+                            className={`text-sm font-semibold ${
+                              vendor.isLowest ? 'text-emerald-800' : 'text-slate-800'
                             }`}
                           >
-                            {row.key === 'rating' && (
-                              <Star className="w-3.5 h-3.5 inline mr-1 -mt-0.5 text-amber-500" />
-                            )}
-                            {displayValue}
+                            {vendor.vendorName}
                           </span>
-                        </td>
-                      );
-                    })}
+                          {vendor.isLowest && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Lowest
+                            </span>
+                          )}
+                        </div>
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {criteriaRows.map((row) => (
+                    <tr key={row.label || 'action'}>
+                      <td className="px-5 py-4 text-sm font-medium text-slate-700 bg-slate-50/40">
+                        {row.key !== 'action' && row.label}
+                      </td>
+                      {quotes.map((vendor) => {
+                        const isWinner = vendor.isLowest;
+                        const cellBg = isWinner ? 'bg-emerald-50 border-x-2 border-emerald-500' : '';
+                        const lastRowBorder = row.key === 'action' && isWinner ? 'border-b-2 border-emerald-500' : '';
+
+                        if (row.key === 'action') {
+                          return (
+                            <td key={vendor.quotationId} className={`px-5 py-4 text-center ${cellBg} ${lastRowBorder}`}>
+                              <Button
+                                type="button"
+                                disabled={isApproving === vendor.quotationId}
+                                onClick={() => void handleSelectApprove(vendor.quotationId)}
+                                className={
+                                  isWinner
+                                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-md shadow-sm cursor-pointer transition-all duration-200 disabled:opacity-60'
+                                    : 'border-slate-200 text-slate-700 hover:bg-slate-50 text-sm font-medium rounded-md cursor-pointer transition-all duration-200'
+                                }
+                                variant={isWinner ? 'default' : 'outline'}
+                              >
+                                {isApproving === vendor.quotationId ? (
+                                  <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+                                ) : isWinner ? (
+                                  <CheckCircle2 className="w-4 h-4 mr-1.5" />
+                                ) : null}
+                                {isWinner ? 'Select & Approve' : 'Select'}
+                              </Button>
+                            </td>
+                          );
+                        }
+
+                        let displayValue: string;
+                        if (row.key === 'grandTotal') {
+                          displayValue = formatCurrency(vendor[row.key] as number);
+                        } else if (row.key === 'gstPercent') {
+                          displayValue = `${vendor[row.key]}%`;
+                        } else if (row.key === 'deliveryDays') {
+                          displayValue = `${vendor[row.key]} days`;
+                        } else {
+                          displayValue = String(vendor[row.key]);
+                        }
+
+                        return (
+                          <td key={vendor.quotationId} className={`px-5 py-4 text-center ${cellBg}`}>
+                            <span
+                              className={`text-sm tabular-nums ${
+                                row.key === 'grandTotal'
+                                  ? `text-base font-bold ${isWinner ? 'text-emerald-700' : 'text-slate-900'}`
+                                  : row.key === 'rating'
+                                    ? 'font-medium text-amber-600'
+                                    : isWinner
+                                      ? 'font-medium text-emerald-800'
+                                      : 'font-medium text-slate-700'
+                              }`}
+                            >
+                              {row.key === 'rating' && (
+                                <Star className="w-3.5 h-3.5 inline mr-1 -mt-0.5 text-amber-500" />
+                              )}
+                              {displayValue}
+                            </span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border border-slate-200 shadow-sm bg-white rounded-lg">
+          <CardContent className="p-10 text-center">
+            <p className="text-sm text-slate-500">No quotations found for this RFQ.</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Summary Info */}
       <div className="flex items-center gap-4 text-xs text-slate-400">

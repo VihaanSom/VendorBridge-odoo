@@ -11,6 +11,7 @@ import {
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { apiGet } from '@/lib/api';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -21,6 +22,22 @@ interface LogEntry {
   type: Exclude<LogType, 'ALL'>;
   message: string;
   timestamp: string;
+}
+
+// ── API response type ───────────────────────────────────────────────
+
+interface APIActivityLog {
+  id: string;
+  action: string;
+  entityType: string;
+  description: string | null;
+  createdAt: string;
+  user: {
+    firstName: string | null;
+    lastName: string | null;
+    email: string;
+    role: string;
+  } | null;
 }
 
 // ── Icon & Color Mapping ────────────────────────────────────────────
@@ -41,7 +58,7 @@ function getLogIconConfig(entry: LogEntry): LogIconConfig {
   if (msg.startsWith('quotation selected') || msg.includes('selected')) {
     return { icon: CheckCircle, color: 'text-emerald-500', bg: 'bg-emerald-50' };
   }
-  if (msg.startsWith('approval pending') || msg.includes('awaiting')) {
+  if (msg.startsWith('approval pending') || msg.includes('awaiting') || msg.includes('approval')) {
     return { icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50' };
   }
   if (msg.startsWith('rfq published') || msg.includes('rfq')) {
@@ -77,38 +94,59 @@ const FILTER_TABS: FilterTab[] = [
   { label: 'Vendors',   value: 'VENDORS' },
 ];
 
-// ── Mock Data ───────────────────────────────────────────────────────
+// ── Mock Data (fallback) ────────────────────────────────────────────
 
 const MOCK_LOGS: LogEntry[] = [
   {
     id: 'log-001',
     type: 'APPROVALS',
-    message:
-      'Quotation selected — Infra Supplies Pvt Ltd selected for office furniture Q2',
+    message: 'Quotation selected — Infra Supplies Pvt Ltd selected for office furniture Q2',
     timestamp: '23 May 2025, 9:15 PM',
   },
   {
     id: 'log-002',
     type: 'APPROVALS',
-    message:
-      'Approval pending — PO-2024 awaiting L2 approval by Priya Shah',
+    message: 'Approval pending — PO-2024 awaiting L2 approval by Priya Shah',
     timestamp: '22 May 2025, 09:15 AM',
   },
   {
     id: 'log-003',
     type: 'RFQ',
-    message:
-      'RFQ published — Office furniture Q2 sent to 3 vendors',
+    message: 'RFQ published — Office furniture Q2 sent to 3 vendors',
     timestamp: '19 May 2025',
   },
   {
     id: 'log-004',
     type: 'VENDORS',
-    message:
-      'Vendor added — FastLog Transport registered and pending verification',
+    message: 'Vendor added — FastLog Transport registered and pending verification',
     timestamp: '18 May 2025, 3:20 PM',
   },
 ];
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function mapEntityTypeToLogType(entityType: string): Exclude<LogType, 'ALL'> {
+  const map: Record<string, Exclude<LogType, 'ALL'>> = {
+    RFQ: 'RFQ',
+    QUOTATION: 'RFQ',
+    APPROVAL: 'APPROVALS',
+    PURCHASE_ORDER: 'INVOICES',
+    INVOICE: 'INVOICES',
+    VENDOR: 'VENDORS',
+  };
+  return map[entityType] ?? 'RFQ';
+}
+
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 // ── Component ───────────────────────────────────────────────────────
 
@@ -116,17 +154,19 @@ export default function ActivityLogs(): React.JSX.Element {
   const [activeFilter, setActiveFilter] = useState<LogType>('ALL');
   const [logs, setLogs] = useState<LogEntry[]>(MOCK_LOGS);
 
-  // ── Backend integration prep ────────────────────────────────────
-  // TODO: Swap mock data with live API once backend is running
+  // ── Fetch live activity logs from backend ────────────────────────
   useEffect(() => {
     const fetchActivityLogs = async (): Promise<void> => {
       try {
-        const res: Response = await fetch(
-          'http://localhost:5000/api/analytics/activity-logs'
-        );
-        if (res.ok) {
-          const data = (await res.json()) as LogEntry[];
-          setLogs(data);
+        const data = await apiGet<APIActivityLog[]>('/analytics/activity-logs');
+        if (data.length > 0) {
+          const mapped: LogEntry[] = data.map((log) => ({
+            id: log.id,
+            type: mapEntityTypeToLogType(log.entityType),
+            message: log.description ?? `${log.action} on ${log.entityType}`,
+            timestamp: formatTimestamp(log.createdAt),
+          }));
+          setLogs(mapped);
         }
       } catch {
         // Silently fall back to mock data
