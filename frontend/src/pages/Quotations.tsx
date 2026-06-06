@@ -36,6 +36,7 @@ interface VendorQuote {
   deliveryDays: number;
   rating: string;
   paymentTerms: string;
+  status: string;
   isLowest?: boolean;
 }
 
@@ -385,9 +386,10 @@ function CompareQuotationsView(): React.JSX.Element {
     const fetchRfqs = async (): Promise<void> => {
       try {
         const data = await apiGet<APIRfq[]>('/rfqs');
-        setRfqs(data.filter((r) => r.status === 'ACTIVE' || r.status === 'CLOSED'));
-        if (data.length > 0 && data[0]) {
-          setSelectedRfqId(data[0].id);
+        const activeRfqs = data.filter((r) => r.status === 'ACTIVE' || r.status === 'CLOSED');
+        setRfqs(activeRfqs);
+        if (activeRfqs.length > 0 && activeRfqs[0]) {
+          setSelectedRfqId(activeRfqs[0].id);
         }
       } catch { /* fallback */ }
     };
@@ -424,6 +426,7 @@ function CompareQuotationsView(): React.JSX.Element {
           deliveryDays: q.deliveryTimelineDays,
           rating: q.vendor.rating ? `${q.vendor.rating} / 5` : 'N/A',
           paymentTerms: 'Net 30',
+          status: q.status,
           isLowest: q.totalPrice === lowest,
         }));
         setQuotes(mapped);
@@ -568,25 +571,26 @@ function CompareQuotationsView(): React.JSX.Element {
                         const lastRowBorder = row.key === 'action' && isWinner ? 'border-b-2 border-emerald-500' : '';
 
                         if (row.key === 'action') {
+                          const canApprove = vendor.status === 'SUBMITTED';
                           return (
                             <td key={vendor.quotationId} className={`px-5 py-4 text-center ${cellBg} ${lastRowBorder}`}>
                               <Button
                                 type="button"
-                                disabled={isApproving === vendor.quotationId}
+                                disabled={isApproving === vendor.quotationId || !canApprove}
                                 onClick={() => void handleSelectApprove(vendor.quotationId)}
                                 className={
-                                  isWinner
+                                  isWinner && canApprove
                                     ? 'bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-md shadow-sm cursor-pointer transition-all duration-200 disabled:opacity-60'
-                                    : 'border-slate-200 text-slate-700 hover:bg-slate-50 text-sm font-medium rounded-md cursor-pointer transition-all duration-200'
+                                    : 'border-slate-200 text-slate-700 hover:bg-slate-50 text-sm font-medium rounded-md cursor-pointer transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed'
                                 }
-                                variant={isWinner ? 'default' : 'outline'}
+                                variant={isWinner && canApprove ? 'default' : 'outline'}
                               >
                                 {isApproving === vendor.quotationId ? (
                                   <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
-                                ) : isWinner ? (
+                                ) : isWinner && canApprove ? (
                                   <CheckCircle2 className="w-4 h-4 mr-1.5" />
                                 ) : null}
-                                {isWinner ? 'Select & Approve' : 'Select'}
+                                {!canApprove ? vendor.status.replace('_', ' ') : isWinner ? 'Select & Approve' : 'Select'}
                               </Button>
                             </td>
                           );
