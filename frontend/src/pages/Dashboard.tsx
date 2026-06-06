@@ -32,8 +32,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { apiGet } from '@/lib/api';
 
 // ── Types ───────────────────────────────────────────────────────────
+
+interface DashboardStats {
+  activeRfqs: number;
+  pendingApprovals: number;
+  purchaseOrders: number;
+  invoices: number;
+}
 
 interface DashboardMetrics {
   activeRfqs: number;
@@ -76,7 +84,7 @@ const STATUS_STYLES: Record<POStatus, string> = {
   Draft: 'bg-slate-100 text-slate-700',
 };
 
-// ── Mock Data ───────────────────────────────────────────────────────
+// ── Mock Data (fallbacks) ───────────────────────────────────────────
 
 const MOCK_METRICS: DashboardMetrics = {
   activeRfqs: 12,
@@ -110,6 +118,25 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+// ── API response types ──────────────────────────────────────────────
+
+interface APIPurchaseOrder {
+  id: string;
+  poNumber: string;
+  status: string;
+  quotation: {
+    rfq: { title: string };
+    vendor: {
+      companyName: string;
+      user: { firstName: string; lastName: string };
+    };
+    items: Array<{
+      unitPrice: string;
+      rfqItem: { quantity: number };
+    }>;
+  };
+}
+
 // ── Component ───────────────────────────────────────────────────────
 
 export default function Dashboard(): React.JSX.Element {
@@ -117,16 +144,44 @@ export default function Dashboard(): React.JSX.Element {
   const [recentPOs, setRecentPOs] = useState<RecentPurchaseOrder[]>(MOCK_PURCHASE_ORDERS);
   const [spendingData] = useState<SpendingDataPoint[]>(MOCK_SPENDING_DATA);
 
-  // TODO: Swap mock data with live API once backend is running
+  // ── Fetch live data from backend ────────────────────────────────
   useEffect(() => {
     const fetchDashboardData = async (): Promise<void> => {
       try {
-        const res: Response = await fetch(
-          'http://localhost:5000/api/analytics/dashboard'
-        );
-        if (res.ok) {
-          const data = (await res.json()) as DashboardMetrics;
-          setMetrics(data);
+        // Fetch aggregate stats
+        const stats = await apiGet<DashboardStats>('/analytics/dashboard');
+        setMetrics({
+          activeRfqs: stats.activeRfqs,
+          pendingApprovals: stats.pendingApprovals,
+          poValueThisMonth: `${stats.purchaseOrders} POs`,
+          overdueInvoices: stats.invoices,
+        });
+      } catch {
+        // Silently fall back to mock data
+      }
+
+      try {
+        // Fetch recent purchase orders
+        const pos = await apiGet<APIPurchaseOrder[]>('/financials/purchase-orders');
+        if (pos.length > 0) {
+          const mapped: RecentPurchaseOrder[] = pos.slice(0, 5).map((po) => {
+            const total = po.quotation.items.reduce((sum, item) => {
+              return sum + item.rfqItem.quantity * parseFloat(item.unitPrice);
+            }, 0);
+            const statusMap: Record<string, POStatus> = {
+              ISSUED: 'Approved',
+              ACKNOWLEDGED: 'Approved',
+              FULFILLED: 'Approved',
+              CANCELLED: 'Draft',
+            };
+            return {
+              id: po.poNumber,
+              vendor: po.quotation.vendor.companyName,
+              amount: total,
+              status: statusMap[po.status] ?? 'Pending',
+            };
+          });
+          setRecentPOs(mapped);
         }
       } catch {
         // Silently fall back to mock data
@@ -135,9 +190,6 @@ export default function Dashboard(): React.JSX.Element {
 
     void fetchDashboardData();
   }, []);
-
-  // Suppress unused-var lint for setRecentPOs — it will be used with live data
-  void setRecentPOs;
 
   const metricCards: MetricCardConfig[] = [
     {
@@ -171,13 +223,13 @@ export default function Dashboard(): React.JSX.Element {
       trendUp: true,
     },
     {
-      title: 'Overdue Invoices',
+      title: 'Invoices',
       value: String(metrics.overdueInvoices),
-      subtitle: 'Need attention',
+      subtitle: 'Total generated',
       icon: AlertTriangle,
       iconColor: 'text-rose-600',
       iconBg: 'bg-rose-100',
-      trend: '1 critical',
+      trend: 'View all',
       trendUp: false,
     },
   ];
@@ -383,7 +435,7 @@ export default function Dashboard(): React.JSX.Element {
                         fontSize: '12px',
                         boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
                       }}
-                      formatter={(value: number) => [formatCurrency(value)]}
+                      formatter={(value: number, name: string) => [formatCurrency(value), name]}
                     />
                     <Area
                       type="monotone"

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Download,
@@ -8,6 +8,8 @@ import {
   CalendarDays,
   Hash,
   Loader2,
+  FileText,
+  Plus,
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/layout/DashboardLayout';
@@ -21,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { apiGet, apiPost, apiGetBlob } from '@/lib/api';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -33,38 +36,67 @@ interface InvoiceItem {
 }
 
 interface InvoiceDetails {
+  invoiceId: string;
+  invoiceNumber: string;
   poNumber: string;
   poDate: string;
   invoiceDate: string;
-  dueDate: string;
-  billTo: string;
-  vendorInfo: string;
+  status: string;
+  vendorName: string;
+  subtotal: number;
+  taxPercentage: number;
+  taxAmount: number;
+  totalAmount: number;
+  items: InvoiceItem[];
 }
 
 type PaymentStatus = 'Pending Payment' | 'Paid' | 'Overdue';
 
-// ── Mock Data ───────────────────────────────────────────────────────
+// ── API response types ──────────────────────────────────────────────
 
-const INVOICE_DETAILS: InvoiceDetails = {
-  poNumber: 'PO-2025-0068',
-  poDate: '21 May, 2025',
-  invoiceDate: '22 May, 2025',
-  dueDate: '21 June, 2025',
-  billTo: 'Your Organization Name\n123 Business Park, Ahmedabad\nGSTIN: 25383438AFB',
-  vendorInfo: 'Infra Supplies Pvt Ltd\n456, Industrial Estate, Surat\nGSTIN: 343434DB4523',
-};
+interface APIInvoice {
+  id: string;
+  invoiceNumber: string;
+  subtotal: string;
+  taxPercentage: string;
+  taxAmount: string;
+  totalAmount: string;
+  status: string;
+  createdAt: string;
+  purchaseOrder: {
+    id: string;
+    poNumber: string;
+    status: string;
+    createdAt: string;
+    quotation: {
+      deliveryTimelineDays: number;
+      vendor: {
+        companyName: string;
+        gstNumber: string | null;
+      };
+      items: Array<{
+        unitPrice: string;
+        rfqItem: {
+          itemName: string;
+          quantity: number;
+        };
+      }>;
+    };
+  };
+}
 
-const INVOICE_ITEMS: InvoiceItem[] = [
-  { id: 'INV-1', name: 'Ergonomic Chair', qty: 25, unitPrice: 3500, total: 87500 },
-  { id: 'INV-2', name: 'Standing Desk', qty: 10, unitPrice: 8200, total: 82000 },
-];
-
-const SUBTOTAL = 169500;
-const CGST_RATE = 9;
-const SGST_RATE = 9;
-const CGST_AMOUNT = Math.round(SUBTOTAL * (CGST_RATE / 100));
-const SGST_AMOUNT = Math.round(SUBTOTAL * (SGST_RATE / 100));
-const GRAND_TOTAL = SUBTOTAL + CGST_AMOUNT + SGST_AMOUNT;
+interface APIPurchaseOrder {
+  id: string;
+  poNumber: string;
+  status: string;
+  quotation: {
+    vendor: { companyName: string };
+    items: Array<{
+      unitPrice: string;
+      rfqItem: { itemName: string; quantity: number };
+    }>;
+  };
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -74,6 +106,20 @@ function formatCurrency(amount: number): string {
     currency: 'INR',
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function mapStatusToPayment(status: string): PaymentStatus {
+  if (status === 'PAID') return 'Paid';
+  if (status === 'OVERDUE') return 'Overdue';
+  return 'Pending Payment';
 }
 
 const STATUS_STYLES: Record<PaymentStatus, string> = {
@@ -91,23 +137,101 @@ const STATUS_DOT: Record<PaymentStatus, string> = {
 // ── Component ───────────────────────────────────────────────────────
 
 export default function InvoiceView(): React.JSX.Element {
+  const [invoice, setInvoice] = useState<InvoiceDetails | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('Pending Payment');
   const [isProcessing, setIsProcessing] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [availablePOs, setAvailablePOs] = useState<APIPurchaseOrder[]>([]);
+  const [actionMsg, setActionMsg] = useState<string>('');
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+
+  // ── Fetch invoices from backend ─────────────────────────────────
+  useEffect(() => {
+    const fetchData = async (): Promise<void> => {
+      try {
+        // Fetch existing invoices
+        const invoices = await apiGet<APIInvoice[]>('/financials/invoices');
+        if (invoices.length > 0 && invoices[0]) {
+          const inv = invoices[0];
+          setInvoice(mapApiInvoice(inv));
+          setPaymentStatus(mapStatusToPayment(inv.status));
+        }
+      } catch {
+        // No invoices or not authenticated
+      }
+
+      try {
+        // Fetch POs for generating new invoices
+        const pos = await apiGet<APIPurchaseOrder[]>('/financials/purchase-orders');
+        setAvailablePOs(pos);
+      } catch {
+        // No POs available
+      }
+
+      setIsLoading(false);
+    };
+    void fetchData();
+  }, []);
+
+  function mapApiInvoice(inv: APIInvoice): InvoiceDetails {
+    return {
+      invoiceId: inv.id,
+      invoiceNumber: inv.invoiceNumber,
+      poNumber: inv.purchaseOrder.poNumber,
+      poDate: formatDate(inv.purchaseOrder.createdAt),
+      invoiceDate: formatDate(inv.createdAt),
+      status: inv.status,
+      vendorName: inv.purchaseOrder.quotation.vendor.companyName,
+      subtotal: parseFloat(inv.subtotal),
+      taxPercentage: parseFloat(inv.taxPercentage),
+      taxAmount: parseFloat(inv.taxAmount),
+      totalAmount: parseFloat(inv.totalAmount),
+      items: inv.purchaseOrder.quotation.items.map((item, i) => ({
+        id: `item-${i}`,
+        name: item.rfqItem.itemName,
+        qty: item.rfqItem.quantity,
+        unitPrice: parseFloat(item.unitPrice),
+        total: item.rfqItem.quantity * parseFloat(item.unitPrice),
+      })),
+    };
+  }
 
   // ── Action Handlers ───────────────────────────────────────────────
 
+  const handleGenerateInvoice = async (poId: string): Promise<void> => {
+    setIsGenerating(true);
+    setActionMsg('');
+    try {
+      const result = await apiPost<APIInvoice>('/financials/invoices', {
+        poId,
+        taxPercentage: 18,
+      });
+      setInvoice(mapApiInvoice(result));
+      setPaymentStatus(mapStatusToPayment(result.status));
+      setActionMsg('✓ Invoice generated successfully!');
+    } catch (err) {
+      setActionMsg(`✗ ${err instanceof Error ? err.message : 'Failed to generate invoice'}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleDownloadPDF = async (): Promise<void> => {
+    if (!invoice) return;
     setIsProcessing('download');
     try {
-      // TODO: Map to GET /api/financials/invoices/:id/pdf
-      // Should trigger a file download of the generated PDF
-      const res: Response = await fetch(
-        `http://localhost:5000/api/financials/invoices/${INVOICE_DETAILS.poNumber}/pdf`
-      );
-      if (!res.ok) throw new Error('Failed to download PDF');
-      // TODO: Trigger browser download from blob response
+      const res = await apiGetBlob(`/financials/invoices/${invoice.invoiceId}/pdf`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${invoice.invoiceNumber}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch {
-      // TODO: Show error toast
+      setActionMsg('✗ Failed to download PDF');
     } finally {
       setIsProcessing(null);
     }
@@ -118,27 +242,121 @@ export default function InvoiceView(): React.JSX.Element {
   };
 
   const handleEmailInvoice = async (): Promise<void> => {
+    if (!invoice) return;
     setIsProcessing('email');
     try {
-      // TODO: Map to POST /api/financials/invoices/:id/email
-      // Should send the invoice PDF to the vendor's registered email
-      const res: Response = await fetch(
-        `http://localhost:5000/api/financials/invoices/${INVOICE_DETAILS.poNumber}/email`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' } }
-      );
-      if (!res.ok) throw new Error('Failed to email invoice');
-      // TODO: Show success toast
+      await apiPost(`/financials/invoices/${invoice.invoiceId}/email`);
+      setActionMsg('✓ Invoice emailed to vendor successfully!');
     } catch {
-      // TODO: Show error toast
+      setActionMsg('✗ Failed to email invoice');
     } finally {
       setIsProcessing(null);
     }
   };
 
   const handleMarkAsPaid = (): void => {
-    // TODO: PATCH /api/financials/invoices/:id with { status: 'PAID' }
     setPaymentStatus('Paid');
   };
+
+  // ── Loading State ─────────────────────────────────────────────────
+
+  if (isLoading) {
+    return (
+      <DashboardLayout activePage="Invoices">
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  // ── No Invoice — Show PO list to generate from ────────────────────
+
+  if (!invoice) {
+    return (
+      <DashboardLayout activePage="Invoices">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="space-y-6 max-w-5xl"
+        >
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              Purchase Order &amp; Invoice
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              No invoices generated yet. Select a Purchase Order to generate an invoice.
+            </p>
+          </div>
+
+          {actionMsg && (
+            <p className={`text-sm font-medium ${actionMsg.startsWith('✓') ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {actionMsg}
+            </p>
+          )}
+
+          {availablePOs.length > 0 ? (
+            <Card className="border border-slate-200 shadow-sm bg-white rounded-lg overflow-hidden">
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50/80 hover:bg-slate-50/80">
+                      <TableHead className="text-xs font-medium uppercase tracking-wider text-slate-500 pl-6">PO Number</TableHead>
+                      <TableHead className="text-xs font-medium uppercase tracking-wider text-slate-500">Vendor</TableHead>
+                      <TableHead className="text-xs font-medium uppercase tracking-wider text-slate-500 text-center">Status</TableHead>
+                      <TableHead className="text-xs font-medium uppercase tracking-wider text-slate-500 text-center pr-6">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {availablePOs.map((po) => (
+                      <TableRow key={po.id} className="hover:bg-slate-50/60 transition-colors">
+                        <TableCell className="pl-6 text-sm font-medium font-mono text-slate-900">{po.poNumber}</TableCell>
+                        <TableCell className="text-sm text-slate-700">{po.quotation.vendor.companyName}</TableCell>
+                        <TableCell className="text-center">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-emerald-100 text-emerald-700">
+                            {po.status}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-center pr-6">
+                          <Button
+                            size="sm"
+                            disabled={isGenerating}
+                            onClick={() => void handleGenerateInvoice(po.id)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-md cursor-pointer"
+                          >
+                            {isGenerating ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                            ) : (
+                              <Plus className="w-3.5 h-3.5 mr-1.5" />
+                            )}
+                            Generate Invoice
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border border-slate-200 shadow-sm bg-white rounded-lg">
+              <CardContent className="p-10 text-center">
+                <FileText className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <p className="text-sm text-slate-500">No purchase orders available to generate invoices.</p>
+                <p className="text-xs text-slate-400 mt-1">Approve a quotation first to create a PO.</p>
+              </CardContent>
+            </Card>
+          )}
+        </motion.div>
+      </DashboardLayout>
+    );
+  }
+
+  // ── Invoice Detail View ───────────────────────────────────────────
+
+  const halfTax = invoice.taxAmount / 2;
+  const halfTaxRate = invoice.taxPercentage / 2;
 
   return (
     <DashboardLayout activePage="Invoices">
@@ -152,10 +370,10 @@ export default function InvoiceView(): React.JSX.Element {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              Purchase Order & Invoice
+              Purchase Order &amp; Invoice
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              PO-2025-0068 — Auto-generated after approval
+              {invoice.invoiceNumber} — Auto-generated after approval
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -202,6 +420,12 @@ export default function InvoiceView(): React.JSX.Element {
           </div>
         </div>
 
+        {actionMsg && (
+          <p className={`text-sm font-medium ${actionMsg.startsWith('✓') ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {actionMsg}
+          </p>
+        )}
+
         {/* ── Billing & Dates Card ────────────────────────────────── */}
         <Card className="border border-slate-200 shadow-sm bg-white rounded-lg">
           <CardContent className="p-6">
@@ -216,7 +440,7 @@ export default function InvoiceView(): React.JSX.Element {
                   </span>
                 </div>
                 <p className="text-sm text-slate-800 whitespace-pre-line leading-relaxed font-medium">
-                  {INVOICE_DETAILS.billTo}
+                  Your Organization Name{'\n'}123 Business Park, Ahmedabad{'\n'}GSTIN: 25383438AFB
                 </p>
               </div>
 
@@ -229,7 +453,7 @@ export default function InvoiceView(): React.JSX.Element {
                   </span>
                 </div>
                 <p className="text-sm text-slate-800 whitespace-pre-line leading-relaxed font-medium">
-                  {INVOICE_DETAILS.vendorInfo}
+                  {invoice.vendorName}
                 </p>
               </div>
             </div>
@@ -244,30 +468,30 @@ export default function InvoiceView(): React.JSX.Element {
                   <Hash className="w-4 h-4 text-slate-400" />
                   <span className="text-sm text-slate-500">PO Number:</span>
                   <span className="text-sm font-semibold text-slate-900 font-mono">
-                    {INVOICE_DETAILS.poNumber}
+                    {invoice.poNumber}
                   </span>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <CalendarDays className="w-4 h-4 text-slate-400" />
                   <span className="text-sm text-slate-500">PO Date:</span>
                   <span className="text-sm font-medium text-slate-900">
-                    {INVOICE_DETAILS.poDate}
+                    {invoice.poDate}
                   </span>
                 </div>
               </div>
               <div className="space-y-3">
                 <div className="flex items-center gap-2.5">
-                  <CalendarDays className="w-4 h-4 text-slate-400" />
-                  <span className="text-sm text-slate-500">Invoice Date:</span>
-                  <span className="text-sm font-medium text-slate-900">
-                    {INVOICE_DETAILS.invoiceDate}
+                  <Hash className="w-4 h-4 text-slate-400" />
+                  <span className="text-sm text-slate-500">Invoice #:</span>
+                  <span className="text-sm font-semibold text-slate-900 font-mono">
+                    {invoice.invoiceNumber}
                   </span>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <CalendarDays className="w-4 h-4 text-slate-400" />
-                  <span className="text-sm text-slate-500">Due Date:</span>
-                  <span className="text-sm font-semibold text-rose-600">
-                    {INVOICE_DETAILS.dueDate}
+                  <span className="text-sm text-slate-500">Invoice Date:</span>
+                  <span className="text-sm font-medium text-slate-900">
+                    {invoice.invoiceDate}
                   </span>
                 </div>
               </div>
@@ -297,7 +521,7 @@ export default function InvoiceView(): React.JSX.Element {
               </TableHeader>
               <TableBody>
                 {/* Item Rows */}
-                {INVOICE_ITEMS.map((item) => (
+                {invoice.items.map((item) => (
                   <TableRow
                     key={item.id}
                     className="hover:bg-slate-50/60 transition-colors duration-150"
@@ -328,27 +552,27 @@ export default function InvoiceView(): React.JSX.Element {
                     Subtotal
                   </TableCell>
                   <TableCell className="text-sm font-medium text-slate-900 text-right pr-6 tabular-nums">
-                    {formatCurrency(SUBTOTAL)}
+                    {formatCurrency(invoice.subtotal)}
                   </TableCell>
                 </TableRow>
 
                 {/* CGST */}
                 <TableRow className="hover:bg-transparent">
                   <TableCell colSpan={3} className="pl-6 text-sm text-slate-500 text-right pr-4">
-                    CGST ({CGST_RATE}%)
+                    CGST ({halfTaxRate}%)
                   </TableCell>
                   <TableCell className="text-sm font-medium text-slate-900 text-right pr-6 tabular-nums">
-                    {formatCurrency(CGST_AMOUNT)}
+                    {formatCurrency(halfTax)}
                   </TableCell>
                 </TableRow>
 
                 {/* SGST */}
                 <TableRow className="hover:bg-transparent">
                   <TableCell colSpan={3} className="pl-6 text-sm text-slate-500 text-right pr-4">
-                    SGST ({SGST_RATE}%)
+                    SGST ({halfTaxRate}%)
                   </TableCell>
                   <TableCell className="text-sm font-medium text-slate-900 text-right pr-6 tabular-nums">
-                    {formatCurrency(SGST_AMOUNT)}
+                    {formatCurrency(halfTax)}
                   </TableCell>
                 </TableRow>
 
@@ -358,7 +582,7 @@ export default function InvoiceView(): React.JSX.Element {
                     Grand Total
                   </TableCell>
                   <TableCell className="text-lg font-bold text-emerald-700 text-right pr-6 tabular-nums">
-                    {formatCurrency(GRAND_TOTAL)}
+                    {formatCurrency(invoice.totalAmount)}
                   </TableCell>
                 </TableRow>
               </TableBody>
