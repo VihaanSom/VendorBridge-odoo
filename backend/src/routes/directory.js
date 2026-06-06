@@ -13,7 +13,7 @@ router.use(authenticate);
 // ──────────────────────────────────────────────────────────────
 router.get(
   '/users',
-  authorize('ADMIN'),
+  authorize('ADMIN', 'OFFICER', 'APPROVER'),
   asyncHandler(async (req, res) => {
     const { role } = req.query;
 
