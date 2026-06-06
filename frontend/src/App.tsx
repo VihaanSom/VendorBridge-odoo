@@ -1,7 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
-import { AuthProvider, ProtectedRoute } from '@/lib/AuthContext';
+import { AuthProvider, ProtectedRoute, RoleRoute } from '@/lib/AuthContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
@@ -20,24 +20,40 @@ function App(): React.JSX.Element {
   return (
     <AuthProvider>
       <Routes>
-        {/* Auth pages */}
+        {/* Public auth pages */}
         <Route path="/" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
 
-        {/* Protected dashboard pages */}
+        {/* Dashboard — all roles */}
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/vendors" element={<ProtectedRoute><Vendors /></ProtectedRoute>} />
-        <Route path="/rfqs" element={<ProtectedRoute><RFQList /></ProtectedRoute>} />
-        <Route path="/rfqs/new" element={<ProtectedRoute><CreateRFQ /></ProtectedRoute>} />
-        <Route path="/quotations" element={<ProtectedRoute><Quotations /></ProtectedRoute>} />
-        <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />
-        <Route path="/invoices" element={<ProtectedRoute><InvoiceView /></ProtectedRoute>} />
-        <Route path="/activity" element={<ProtectedRoute><ActivityLogs /></ProtectedRoute>} />
-        <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
 
-        {/* Catch-all: redirect unknown routes to dashboard */}
+        {/* Vendors — ADMIN, OFFICER */}
+        <Route path="/vendors" element={<RoleRoute allowedRoles={['ADMIN','OFFICER']}><Vendors /></RoleRoute>} />
+
+        {/* RFQ List — ADMIN, OFFICER, VENDOR */}
+        <Route path="/rfqs" element={<RoleRoute allowedRoles={['ADMIN','OFFICER','VENDOR']}><RFQList /></RoleRoute>} />
+
+        {/* Create RFQ — OFFICER only */}
+        <Route path="/rfqs/new" element={<RoleRoute allowedRoles={['OFFICER']}><CreateRFQ /></RoleRoute>} />
+
+        {/* Quotations — ADMIN, OFFICER, VENDOR */}
+        <Route path="/quotations" element={<RoleRoute allowedRoles={['ADMIN','OFFICER','VENDOR']}><Quotations /></RoleRoute>} />
+
+        {/* Approvals — ADMIN, APPROVER */}
+        <Route path="/approvals" element={<RoleRoute allowedRoles={['ADMIN','APPROVER']}><Approvals /></RoleRoute>} />
+
+        {/* Invoices — ADMIN, OFFICER, VENDOR */}
+        <Route path="/invoices" element={<RoleRoute allowedRoles={['ADMIN','OFFICER','VENDOR']}><InvoiceView /></RoleRoute>} />
+
+        {/* Reports — ADMIN, OFFICER */}
+        <Route path="/reports" element={<RoleRoute allowedRoles={['ADMIN','OFFICER']}><Reports /></RoleRoute>} />
+
+        {/* Activity — ADMIN, OFFICER, APPROVER */}
+        <Route path="/activity" element={<RoleRoute allowedRoles={['ADMIN','OFFICER','APPROVER']}><ActivityLogs /></RoleRoute>} />
+
+        {/* Catch-all */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AuthProvider>

@@ -201,6 +201,7 @@ model Approval {
   status         ApprovalStatus @default(PENDING)
   remarks        String?        @db.Text
   actedAt        DateTime?      @map("acted_at") @db.Timestamp()
+  createdAt      DateTime?      @default(now()) @map("created_at") @db.Timestamp()
 
   quotation      Quotation      @relation(fields: [quotationId], references: [id])
   approver       User           @relation("ApproverApprovals", fields: [approverId], references: [id])

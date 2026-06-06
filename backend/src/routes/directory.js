@@ -87,7 +87,7 @@ router.post(
 // ──────────────────────────────────────────────────────────────
 router.get(
   '/users',
-  authorize('ADMIN', 'OFFICER', 'APPROVER'),
+  authorize('ADMIN', 'OFFICER'),
   asyncHandler(async (req, res) => {
     const { role } = req.query;
 
