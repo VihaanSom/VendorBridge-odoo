@@ -7,7 +7,7 @@ import Vendors from './pages/Vendors';
 function App(): React.JSX.Element {
   // TODO: Replace with react-router once routing is set up
   // Available pages: <Login />, <Register />, <Dashboard />, <Vendors />
-  return <Vendors />;
+  return <Login />;
 }
 
 export default App;
