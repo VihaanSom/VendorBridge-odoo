@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   FileText,
@@ -143,6 +144,7 @@ export default function Dashboard(): React.JSX.Element {
   const [metrics, setMetrics] = useState<DashboardMetrics>(MOCK_METRICS);
   const [recentPOs, setRecentPOs] = useState<RecentPurchaseOrder[]>(MOCK_PURCHASE_ORDERS);
   const [spendingData] = useState<SpendingDataPoint[]>(MOCK_SPENDING_DATA);
+  const navigate = useNavigate();
 
   // ── Fetch live data from backend ────────────────────────────────
   useEffect(() => {
@@ -322,6 +324,7 @@ export default function Dashboard(): React.JSX.Element {
                   variant="ghost"
                   size="sm"
                   className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 text-xs cursor-pointer"
+                  onClick={() => navigate('/purchase-orders')}
                 >
                   View All
                 </Button>
@@ -482,6 +485,7 @@ export default function Dashboard(): React.JSX.Element {
             <div className="flex items-center gap-3">
               <Button
                 className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-medium rounded-md shadow-sm cursor-pointer transition-all duration-200"
+                onClick={() => navigate('/rfqs/new')}
               >
                 <Plus className="w-4 h-4 mr-1.5" />
                 New RFQ
@@ -489,6 +493,7 @@ export default function Dashboard(): React.JSX.Element {
               <Button
                 variant="outline"
                 className="border-slate-200 text-slate-700 hover:bg-slate-50 text-sm font-medium rounded-md cursor-pointer transition-all duration-200"
+                onClick={() => navigate('/vendors')}
               >
                 <UserPlus className="w-4 h-4 mr-1.5" />
                 Add Vendor
@@ -496,6 +501,7 @@ export default function Dashboard(): React.JSX.Element {
               <Button
                 variant="outline"
                 className="border-slate-200 text-slate-700 hover:bg-slate-50 text-sm font-medium rounded-md cursor-pointer transition-all duration-200"
+                onClick={() => navigate('/invoices')}
               >
                 <Eye className="w-4 h-4 mr-1.5" />
                 View Invoices

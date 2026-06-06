@@ -34,6 +34,7 @@ function App(): React.JSX.Element {
         <Route path="/quotations" element={<ProtectedRoute><Quotations /></ProtectedRoute>} />
         <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />
         <Route path="/invoices" element={<ProtectedRoute><InvoiceView /></ProtectedRoute>} />
+        <Route path="/purchase-orders" element={<ProtectedRoute><InvoiceView /></ProtectedRoute>} />
         <Route path="/activity" element={<ProtectedRoute><ActivityLogs /></ProtectedRoute>} />
         <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
 
