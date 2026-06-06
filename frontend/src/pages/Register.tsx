@@ -1,21 +1,22 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Loader2,
   User,
   Mail,
   Phone,
-  Globe,
+  Lock,
   ShieldCheck,
   Building2,
+  Hash,
+  Tag,
 } from 'lucide-react';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -23,40 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-
-// ── Types ───────────────────────────────────────────────────────────
-
-interface RegisterFormState {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  role: string;
-  country: string;
-  additionalInfo: string;
-}
-
-interface SignupPayload {
-  email: string;
-  password: string;
-  role: string;
-  companyName: string;
-  gstNumber: string;
-  category: string;
-}
-
-interface AuthResponse {
-  token: string;
-  user: {
-    id: string;
-    email: string;
-    role: string;
-  };
-}
-
-interface AuthErrorResponse {
-  message?: string;
-}
+import { useAuth } from '@/lib/AuthContext';
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -64,16 +32,46 @@ const ROLE_OPTIONS = [
   { value: 'ADMIN', label: 'Admin' },
   { value: 'OFFICER', label: 'Officer' },
   { value: 'VENDOR', label: 'Vendor' },
+  { value: 'APPROVER', label: 'Approver' },
 ] as const;
+
+const VENDOR_CATEGORIES = [
+  'Construction',
+  'IT',
+  'Logistics',
+  'Agriculture',
+  'Manufacturing',
+  'Consulting',
+  'Other',
+] as const;
+
+// ── Types ───────────────────────────────────────────────────────────
+
+interface RegisterFormState {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  phone: string;
+  role: string;
+  // Vendor-only fields
+  companyName: string;
+  gstNumber: string;
+  category: string;
+}
 
 const INITIAL_FORM_STATE: RegisterFormState = {
   firstName: '',
   lastName: '',
   email: '',
+  password: '',
+  confirmPassword: '',
   phone: '',
   role: '',
-  country: '',
-  additionalInfo: '',
+  companyName: '',
+  gstNumber: '',
+  category: '',
 };
 
 // ── Component ───────────────────────────────────────────────────────
@@ -82,7 +80,9 @@ export default function Register(): React.JSX.Element {
   const [formData, setFormData] = useState<RegisterFormState>(INITIAL_FORM_STATE);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
-  const navigate = useNavigate();
+  const { signup } = useAuth();
+
+  const isVendor = formData.role === 'VENDOR';
 
   const updateField = (
     field: keyof RegisterFormState,
@@ -92,7 +92,7 @@ export default function Register(): React.JSX.Element {
   };
 
   const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    e: React.ChangeEvent<HTMLInputElement>
   ): void => {
     const { name, value } = e.target;
     updateField(name as keyof RegisterFormState, value);
@@ -103,40 +103,45 @@ export default function Register(): React.JSX.Element {
   ): Promise<void> => {
     e.preventDefault();
     setError('');
+
+    // Client-side validation
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    if (!formData.role) {
+      setError('Please select a role.');
+      return;
+    }
+
+    if (isVendor && (!formData.companyName || !formData.gstNumber || !formData.category)) {
+      setError('Vendor role requires company name, GST number, and category.');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      // TODO: Sync this payload with the final backend schema.
-      // The backend currently expects: email, password, role, companyName, gstNumber, category.
-      // The UI collects: firstName, lastName, email, phone, role, country, additionalInfo.
-      // Missing fields (password, companyName, gstNumber, category) use placeholder values below.
-      const payload: SignupPayload = {
+      await signup({
         email: formData.email,
-        password: 'PLACEHOLDER_NEEDS_PASSWORD_FIELD',
+        password: formData.password,
         role: formData.role,
-        companyName: `${formData.firstName} ${formData.lastName}`,
-        gstNumber: 'PLACEHOLDER_NEEDS_GST_FIELD',
-        category: 'GENERAL',
-      };
-
-      const res: Response = await fetch('http://localhost:5000/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        firstName: formData.firstName || undefined,
+        lastName: formData.lastName || undefined,
+        contactPhone: formData.phone || undefined,
+        // Vendor-specific
+        ...(isVendor && {
+          companyName: formData.companyName,
+          gstNumber: formData.gstNumber,
+          category: formData.category,
+        }),
       });
-
-      if (!res.ok) {
-        const errorData: AuthErrorResponse = await res.json();
-        throw new Error(errorData.message || 'Registration failed. Please try again.');
-      }
-
-      const data: AuthResponse = await res.json();
-
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-
-      // Redirect to dashboard after successful registration
-      navigate('/dashboard');
     } catch (err: unknown) {
       const message =
         err instanceof Error
@@ -216,7 +221,6 @@ export default function Register(): React.JSX.Element {
                       placeholder="John"
                       value={formData.firstName}
                       onChange={handleInputChange}
-                      required
                       disabled={isLoading}
                       className="pl-10 h-11 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md transition-colors duration-200"
                     />
@@ -240,7 +244,6 @@ export default function Register(): React.JSX.Element {
                       placeholder="Doe"
                       value={formData.lastName}
                       onChange={handleInputChange}
-                      required
                       disabled={isLoading}
                       className="pl-10 h-11 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md transition-colors duration-200"
                     />
@@ -253,7 +256,7 @@ export default function Register(): React.JSX.Element {
                     htmlFor="email"
                     className="text-sm font-medium text-slate-700"
                   >
-                    Email Address
+                    Email Address <span className="text-rose-500">*</span>
                   </Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
@@ -294,13 +297,61 @@ export default function Register(): React.JSX.Element {
                   </div>
                 </div>
 
-                {/* Role (Select) */}
+                {/* Password */}
                 <div className="space-y-2">
+                  <Label
+                    htmlFor="password"
+                    className="text-sm font-medium text-slate-700"
+                  >
+                    Password <span className="text-rose-500">*</span>
+                  </Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <Input
+                      id="password"
+                      name="password"
+                      type="password"
+                      placeholder="Min. 6 characters"
+                      value={formData.password}
+                      onChange={handleInputChange}
+                      required
+                      disabled={isLoading}
+                      className="pl-10 h-11 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md transition-colors duration-200"
+                    />
+                  </div>
+                </div>
+
+                {/* Confirm Password */}
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="confirmPassword"
+                    className="text-sm font-medium text-slate-700"
+                  >
+                    Confirm Password <span className="text-rose-500">*</span>
+                  </Label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <Input
+                      id="confirmPassword"
+                      name="confirmPassword"
+                      type="password"
+                      placeholder="Re-enter password"
+                      value={formData.confirmPassword}
+                      onChange={handleInputChange}
+                      required
+                      disabled={isLoading}
+                      className="pl-10 h-11 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md transition-colors duration-200"
+                    />
+                  </div>
+                </div>
+
+                {/* Role (Select) — full width */}
+                <div className="space-y-2 md:col-span-2">
                   <Label
                     htmlFor="role"
                     className="text-sm font-medium text-slate-700"
                   >
-                    Role
+                    Role <span className="text-rose-500">*</span>
                   </Label>
                   <div className="relative">
                     <ShieldCheck className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none z-10" />
@@ -325,50 +376,109 @@ export default function Register(): React.JSX.Element {
                     </Select>
                   </div>
                 </div>
-
-                {/* Country */}
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="country"
-                    className="text-sm font-medium text-slate-700"
-                  >
-                    Country
-                  </Label>
-                  <div className="relative">
-                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                    <Input
-                      id="country"
-                      name="country"
-                      type="text"
-                      placeholder="India"
-                      value={formData.country}
-                      onChange={handleInputChange}
-                      disabled={isLoading}
-                      className="pl-10 h-11 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md transition-colors duration-200"
-                    />
-                  </div>
-                </div>
               </div>
 
-              {/* Additional Information (full-width) */}
-              <div className="space-y-2">
-                <Label
-                  htmlFor="additionalInfo"
-                  className="text-sm font-medium text-slate-700"
+              {/* ── Vendor-specific fields (conditional) ───────────── */}
+              {isVendor && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-5"
                 >
-                  Additional Information
-                </Label>
-                <Textarea
-                  id="additionalInfo"
-                  name="additionalInfo"
-                  placeholder="Tell us about your organization, procurement needs, or any special requirements…"
-                  value={formData.additionalInfo}
-                  onChange={handleInputChange}
-                  disabled={isLoading}
-                  rows={4}
-                  className="border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md transition-colors duration-200 resize-none"
-                />
-              </div>
+                  <div className="flex items-center gap-2 pt-2">
+                    <div className="h-px flex-1 bg-slate-200" />
+                    <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+                      Vendor Details
+                    </span>
+                    <div className="h-px flex-1 bg-slate-200" />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-5">
+                    {/* Company Name */}
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="companyName"
+                        className="text-sm font-medium text-slate-700"
+                      >
+                        Company Name <span className="text-rose-500">*</span>
+                      </Label>
+                      <div className="relative">
+                        <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                        <Input
+                          id="companyName"
+                          name="companyName"
+                          type="text"
+                          placeholder="Acme Supplies Pvt Ltd"
+                          value={formData.companyName}
+                          onChange={handleInputChange}
+                          required
+                          disabled={isLoading}
+                          className="pl-10 h-11 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md transition-colors duration-200"
+                        />
+                      </div>
+                    </div>
+
+                    {/* GST Number */}
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="gstNumber"
+                        className="text-sm font-medium text-slate-700"
+                      >
+                        GST Number <span className="text-rose-500">*</span>
+                      </Label>
+                      <div className="relative">
+                        <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                        <Input
+                          id="gstNumber"
+                          name="gstNumber"
+                          type="text"
+                          placeholder="27AABCS1429BZ0"
+                          value={formData.gstNumber}
+                          onChange={handleInputChange}
+                          required
+                          disabled={isLoading}
+                          maxLength={15}
+                          className="pl-10 h-11 border-slate-200 bg-slate-50/60 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 rounded-md transition-colors duration-200"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Category */}
+                    <div className="space-y-2 md:col-span-2">
+                      <Label
+                        htmlFor="category"
+                        className="text-sm font-medium text-slate-700"
+                      >
+                        Category <span className="text-rose-500">*</span>
+                      </Label>
+                      <div className="relative">
+                        <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none z-10" />
+                        <Select
+                          value={formData.category}
+                          onValueChange={(value: string) => updateField('category', value)}
+                          disabled={isLoading}
+                        >
+                          <SelectTrigger
+                            id="category"
+                            className="w-full pl-10 h-11 border-slate-200 bg-slate-50/60 text-sm text-slate-900 focus:ring-emerald-500 focus:border-emerald-500 rounded-md transition-colors duration-200 [&>span]:data-placeholder:text-slate-400"
+                          >
+                            <SelectValue placeholder="Select a category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {VENDOR_CATEGORIES.map((cat) => (
+                              <SelectItem key={cat} value={cat}>
+                                {cat}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
 
               {/* Submit Button */}
               <Button

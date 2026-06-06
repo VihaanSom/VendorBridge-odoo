@@ -137,7 +137,7 @@ export default function Reports(): React.JSX.Element {
               Reports &amp; Analytics
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              Procurement Insights — May 2025
+              Procurement Insights - May 2025
             </p>
           </div>
 

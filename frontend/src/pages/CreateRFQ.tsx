@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Plus,
@@ -8,6 +9,7 @@ import {
   Save,
   FileText,
   Loader2,
+  CheckSquare,
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/layout/DashboardLayout';
@@ -16,19 +18,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { createRfq, getVendors, type VendorProfile } from '@/lib/api';
 
 // ── Types ───────────────────────────────────────────────────────────
 
 interface LineItem {
   id: string;
-  item: string;
-  qty: number;
-  unit: string;
-}
-
-interface AssignedVendor {
-  id: string;
-  name: string;
+  itemName: string;
+  quantity: number;
+  unitOfMeasure: string;
+  description: string;
 }
 
 interface RfqFormState {
@@ -37,22 +36,8 @@ interface RfqFormState {
   deadline: string;
   description: string;
   items: LineItem[];
-  vendors: AssignedVendor[];
+  selectedVendorIds: string[];
   file: File | null;
-}
-
-interface RfqPayload {
-  title: string;
-  deadline: string;
-  attachmentUrl: string;
-  items: { item: string; qty: number; unit: string }[];
-  vendorIds: string[];
-}
-
-interface RfqApiResponse {
-  id: string;
-  title: string;
-  status: string;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -60,28 +45,6 @@ interface RfqApiResponse {
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
-
-// ── Mock Data ───────────────────────────────────────────────────────
-
-const INITIAL_ITEMS: LineItem[] = [
-  { id: generateId(), item: 'Ergonomic Chair', qty: 25, unit: 'NOS' },
-  { id: generateId(), item: 'Standing Desk', qty: 10, unit: 'NOS' },
-];
-
-const INITIAL_VENDORS: AssignedVendor[] = [
-  { id: 'V-001', name: 'Infra Supplies Pvt Ltd' },
-  { id: 'V-002', name: 'TechCore LTD' },
-];
-
-const INITIAL_FORM: RfqFormState = {
-  title: '',
-  category: '',
-  deadline: '',
-  description: '',
-  items: INITIAL_ITEMS,
-  vendors: INITIAL_VENDORS,
-  file: null,
-};
 
 // ── Stepper Steps ───────────────────────────────────────────────────
 
@@ -91,13 +54,47 @@ const STEPS = [
   { number: 3, label: 'Send' },
 ] as const;
 
+const INITIAL_FORM: RfqFormState = {
+  title: '',
+  category: '',
+  deadline: '',
+  description: '',
+  items: [
+    { id: generateId(), itemName: '', quantity: 1, unitOfMeasure: 'NOS', description: '' },
+  ],
+  selectedVendorIds: [],
+  file: null,
+};
+
 // ── Component ───────────────────────────────────────────────────────
 
 export default function CreateRFQ(): React.JSX.Element {
   const [formData, setFormData] = useState<RfqFormState>(INITIAL_FORM);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
+
+  // Available vendors from API
+  const [availableVendors, setAvailableVendors] = useState<VendorProfile[]>([]);
+  const [vendorsLoading, setVendorsLoading] = useState<boolean>(true);
+
+  // Fetch vendors on mount
+  useEffect(() => {
+    const fetchVendors = async () => {
+      try {
+        const data = await getVendors();
+        setAvailableVendors(data);
+      } catch {
+        // silently fail — vendors list just won't populate
+      } finally {
+        setVendorsLoading(false);
+      }
+    };
+    void fetchVendors();
+  }, []);
 
   // ── Form field helpers ────────────────────────────────────────────
 
@@ -120,9 +117,10 @@ export default function CreateRFQ(): React.JSX.Element {
   const handleAddLineItem = (): void => {
     const newItem: LineItem = {
       id: generateId(),
-      item: '',
-      qty: 0,
-      unit: 'NOS',
+      itemName: '',
+      quantity: 1,
+      unitOfMeasure: 'NOS',
+      description: '',
     };
     updateField('items', [...formData.items, newItem]);
   };
@@ -147,22 +145,16 @@ export default function CreateRFQ(): React.JSX.Element {
     );
   };
 
-  // ── Vendors ───────────────────────────────────────────────────────
+  // ── Vendor Selection ──────────────────────────────────────────────
 
-  const handleAddVendor = (): void => {
-    // TODO: Replace with a vendor selection modal/dropdown from the directory
-    const newVendor: AssignedVendor = {
-      id: generateId(),
-      name: `New Vendor ${formData.vendors.length + 1}`,
-    };
-    updateField('vendors', [...formData.vendors, newVendor]);
-  };
-
-  const handleRemoveVendor = (id: string): void => {
-    updateField(
-      'vendors',
-      formData.vendors.filter((v) => v.id !== id)
-    );
+  const toggleVendor = (vendorId: string): void => {
+    setFormData((prev) => {
+      const ids = prev.selectedVendorIds;
+      const next = ids.includes(vendorId)
+        ? ids.filter((id) => id !== vendorId)
+        : [...ids, vendorId];
+      return { ...prev, selectedVendorIds: next };
+    });
   };
 
   // ── File Upload ───────────────────────────────────────────────────
@@ -198,42 +190,51 @@ export default function CreateRFQ(): React.JSX.Element {
 
   const handleSubmit = async (isDraft: boolean): Promise<void> => {
     setIsSubmitting(true);
+    setError('');
+    setSuccess('');
 
     try {
-      // TODO: File upload logic needs to be integrated with a cloud storage
-      // service (like AWS S3 or Firebase Storage) before sending the
-      // attachmentUrl to the backend. For now, we pass an empty string.
-      const payload: RfqPayload = {
-        title: formData.title,
-        deadline: formData.deadline,
-        attachmentUrl: '',
-        items: formData.items.map(({ item, qty, unit }) => ({ item, qty, unit })),
-        vendorIds: formData.vendors.map((v) => v.id),
-      };
-
-      const res: Response = await fetch('http://localhost:5000/api/rfqs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, status: isDraft ? 'DRAFT' : 'OPEN' }),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to create RFQ');
+      // Validation
+      if (!formData.title.trim()) {
+        throw new Error('RFQ title is required.');
+      }
+      if (!formData.deadline) {
+        throw new Error('Deadline is required.');
+      }
+      if (formData.items.length === 0 || formData.items.some((i) => !i.itemName.trim())) {
+        throw new Error('All items must have a name.');
+      }
+      if (formData.selectedVendorIds.length === 0) {
+        throw new Error('Select at least one vendor.');
       }
 
-      const _data = (await res.json()) as RfqApiResponse;
-      void _data;
+      await createRfq({
+        title: formData.title,
+        deadline: formData.deadline,
+        attachmentUrl: '', // TODO: file upload to cloud
+        items: formData.items.map(({ itemName, description, quantity, unitOfMeasure }) => ({
+          itemName,
+          description: description || undefined,
+          quantity,
+          unitOfMeasure,
+        })),
+        vendorIds: formData.selectedVendorIds,
+      });
 
-      // TODO: navigate to /rfqs or show success toast
-    } catch {
-      // TODO: Show error toast
+      setSuccess('RFQ created successfully!');
+      // Navigate to RFQ list after short delay
+      setTimeout(() => navigate('/rfqs'), 1200);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to create RFQ.';
+      setError(message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <DashboardLayout activePage="RFQ's">
+    <DashboardLayout activePage="Create RFQ">
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -278,6 +279,26 @@ export default function CreateRFQ(): React.JSX.Element {
             </React.Fragment>
           ))}
         </div>
+
+        {/* ── Messages ────────────────────────────────────────────── */}
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-md bg-rose-50 border border-rose-200 px-4 py-3 text-sm text-rose-600 font-medium"
+          >
+            {error}
+          </motion.div>
+        )}
+        {success && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-md bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700 font-medium"
+          >
+            {success}
+          </motion.div>
+        )}
 
         {/* ── Main Form (2-Column Grid) ───────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -385,7 +406,7 @@ export default function CreateRFQ(): React.JSX.Element {
                     <thead>
                       <tr className="bg-slate-50/80">
                         <th className="text-left text-xs font-medium uppercase tracking-wider text-slate-500 px-3 py-2.5">
-                          Item
+                          Item Name
                         </th>
                         <th className="text-center text-xs font-medium uppercase tracking-wider text-slate-500 px-3 py-2.5 w-20">
                           Qty
@@ -405,9 +426,9 @@ export default function CreateRFQ(): React.JSX.Element {
                           <td className="px-3 py-2">
                             <Input
                               type="text"
-                              value={lineItem.item}
+                              value={lineItem.itemName}
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                                handleLineItemChange(lineItem.id, 'item', e.target.value)
+                                handleLineItemChange(lineItem.id, 'itemName', e.target.value)
                               }
                               placeholder="Item name"
                               className="h-8 border-slate-200 bg-transparent text-sm rounded-md"
@@ -416,24 +437,24 @@ export default function CreateRFQ(): React.JSX.Element {
                           <td className="px-2 py-2">
                             <Input
                               type="number"
-                              value={lineItem.qty}
+                              value={lineItem.quantity}
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                                 handleLineItemChange(
                                   lineItem.id,
-                                  'qty',
+                                  'quantity',
                                   parseInt(e.target.value, 10) || 0
                                 )
                               }
-                              min={0}
+                              min={1}
                               className="h-8 border-slate-200 bg-transparent text-sm text-center rounded-md w-16"
                             />
                           </td>
                           <td className="px-2 py-2">
                             <Input
                               type="text"
-                              value={lineItem.unit}
+                              value={lineItem.unitOfMeasure}
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                                handleLineItemChange(lineItem.id, 'unit', e.target.value)
+                                handleLineItemChange(lineItem.id, 'unitOfMeasure', e.target.value)
                               }
                               className="h-8 border-slate-200 bg-transparent text-sm text-center rounded-md w-16"
                             />
@@ -467,7 +488,7 @@ export default function CreateRFQ(): React.JSX.Element {
               </CardContent>
             </Card>
 
-            {/* ── Assigned Vendors ────────────────────────────────── */}
+            {/* ── Assign Vendors (from API) ────────────────────────── */}
             <Card className="border border-slate-200 shadow-sm bg-white rounded-lg">
               <CardHeader className="px-6 pt-5 pb-3">
                 <div className="flex items-center justify-between">
@@ -480,53 +501,65 @@ export default function CreateRFQ(): React.JSX.Element {
                     </p>
                   </div>
                   <span className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded-md font-medium">
-                    {formData.vendors.length} selected
+                    {formData.selectedVendorIds.length} selected
                   </span>
                 </div>
               </CardHeader>
               <CardContent className="px-6 pb-5 pt-0">
-                <div className="space-y-2">
-                  {formData.vendors.map((vendor) => (
-                    <div
-                      key={vendor.id}
-                      className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition-colors duration-150"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-md bg-emerald-100 flex items-center justify-center shrink-0">
-                          <FileText className="w-3.5 h-3.5 text-emerald-600" />
-                        </div>
-                        <span className="text-sm font-medium text-slate-700">
-                          {vendor.name}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveVendor(vendor.id)}
-                        className="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors duration-200 cursor-pointer"
-                        aria-label={`Remove ${vendor.name}`}
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-
-                  {formData.vendors.length === 0 && (
-                    <p className="text-sm text-slate-400 text-center py-4">
-                      No vendors assigned yet.
-                    </p>
-                  )}
-                </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAddVendor}
-                  className="mt-3 text-emerald-600 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 text-xs font-medium cursor-pointer transition-all duration-200"
-                >
-                  <Plus className="w-3.5 h-3.5 mr-1" />
-                  Add Vendor
-                </Button>
+                {vendorsLoading ? (
+                  <div className="flex items-center justify-center py-6">
+                    <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
+                  </div>
+                ) : availableVendors.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-6">
+                    No vendors found. Register vendors first.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {availableVendors.map((vendor) => {
+                      const isSelected = formData.selectedVendorIds.includes(vendor.id);
+                      return (
+                        <button
+                          key={vendor.id}
+                          type="button"
+                          onClick={() => toggleVendor(vendor.id)}
+                          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-all duration-150 cursor-pointer ${
+                            isSelected
+                              ? 'border-emerald-300 bg-emerald-50/80'
+                              : 'border-slate-200 bg-slate-50/60 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${
+                                isSelected ? 'bg-emerald-200' : 'bg-slate-100'
+                              }`}
+                            >
+                              {isSelected ? (
+                                <CheckSquare className="w-3.5 h-3.5 text-emerald-700" />
+                              ) : (
+                                <FileText className="w-3.5 h-3.5 text-slate-500" />
+                              )}
+                            </div>
+                            <div className="text-left">
+                              <span className="text-sm font-medium text-slate-700 block">
+                                {vendor.companyName}
+                              </span>
+                              <span className="text-xs text-slate-400">
+                                {vendor.category}
+                              </span>
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <span className="text-xs text-emerald-600 font-medium">
+                              Selected
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
