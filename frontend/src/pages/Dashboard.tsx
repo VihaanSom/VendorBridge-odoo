@@ -324,7 +324,7 @@ export default function Dashboard(): React.JSX.Element {
                   variant="ghost"
                   size="sm"
                   className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 text-xs cursor-pointer"
-                  onClick={() => navigate('/purchase-orders')}
+                  onClick={() => navigate('/invoices')}
                 >
                   View All
                 </Button>
