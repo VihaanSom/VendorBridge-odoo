@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Loader2,
@@ -81,6 +82,7 @@ export default function Register(): React.JSX.Element {
   const [formData, setFormData] = useState<RegisterFormState>(INITIAL_FORM_STATE);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+  const navigate = useNavigate();
 
   const updateField = (
     field: keyof RegisterFormState,
@@ -133,8 +135,8 @@ export default function Register(): React.JSX.Element {
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
 
-      // TODO: redirect to dashboard or onboarding
-      // navigate('/dashboard');
+      // Redirect to dashboard after successful registration
+      navigate('/dashboard');
     } catch (err: unknown) {
       const message =
         err instanceof Error
@@ -388,12 +390,12 @@ export default function Register(): React.JSX.Element {
             {/* Footer */}
             <p className="text-center text-xs text-slate-400 mt-8">
               Already have an account?{' '}
-              <a
-                href="#"
+              <Link
+                to="/"
                 className="text-emerald-600 hover:text-emerald-700 font-medium transition-colors duration-200"
               >
                 Sign in
-              </a>
+              </Link>
             </p>
           </CardContent>
         </Card>

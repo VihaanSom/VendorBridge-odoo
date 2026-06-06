@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
@@ -122,9 +123,9 @@ export default function DashboardLayout({
               const Icon = item.icon;
 
               return (
-                <a
+                <Link
                   key={item.label}
-                  href={item.href}
+                  to={item.href}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ${
                     isActive
                       ? 'bg-emerald-50 text-emerald-700 border-r-4 border-emerald-600'
@@ -141,7 +142,7 @@ export default function DashboardLayout({
                     strokeWidth={isActive ? 2.2 : 1.8}
                   />
                   {!sidebarCollapsed && <span>{item.label}</span>}
-                </a>
+                </Link>
               );
             })}
           </nav>

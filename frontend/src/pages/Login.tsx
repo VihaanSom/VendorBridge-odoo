@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Loader2, Mail, Lock, Building2 } from 'lucide-react';
 
@@ -31,6 +32,7 @@ export default function Login(): React.JSX.Element {
   const [password, setPassword] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+  const navigate = useNavigate();
 
   const handleSubmit = async (
     e: React.FormEvent<HTMLFormElement>
@@ -39,35 +41,53 @@ export default function Login(): React.JSX.Element {
     setError('');
     setIsLoading(true);
 
-    try {
-      const res: Response = await fetch('http://localhost:5000/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!res.ok) {
-        const errorData: AuthErrorResponse = await res.json();
-        throw new Error(errorData.message || 'Invalid email or password.');
-      }
-
-      const data: AuthResponse = await res.json();
-
-      // Save JWT token to localStorage
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-
-      // TODO: redirect to dashboard
-      // navigate('/dashboard');
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : 'Something went wrong. Please try again.';
-      setError(message);
-    } finally {
+    // TODO: BACKEND TEAM - REMOVE THIS MOCK AUTH AND RESTORE FETCH ONCE API IS LIVE
+    if (
+      email === 'admin@vendorbridge.com' &&
+      password === 'password'
+    ) {
+      localStorage.setItem('token', 'mock_jwt_token');
+      localStorage.setItem(
+        'user',
+        JSON.stringify({ id: 'mock-1', email, role: 'OFFICER' })
+      );
       setIsLoading(false);
+      navigate('/dashboard');
+      return;
     }
+
+    // If mock credentials don't match, show error and skip real fetch
+    setError('Invalid credentials');
+    setIsLoading(false);
+
+    // --- Real API call (commented out until backend is live) ---
+    // try {
+    //   const res: Response = await fetch('http://localhost:5000/api/auth/login', {
+    //     method: 'POST',
+    //     headers: { 'Content-Type': 'application/json' },
+    //     body: JSON.stringify({ email, password }),
+    //   });
+    //
+    //   if (!res.ok) {
+    //     const errorData: AuthErrorResponse = await res.json();
+    //     throw new Error(errorData.message || 'Invalid email or password.');
+    //   }
+    //
+    //   const data: AuthResponse = await res.json();
+    //
+    //   localStorage.setItem('token', data.token);
+    //   localStorage.setItem('user', JSON.stringify(data.user));
+    //
+    //   navigate('/dashboard');
+    // } catch (err: unknown) {
+    //   const message =
+    //     err instanceof Error
+    //       ? err.message
+    //       : 'Something went wrong. Please try again.';
+    //   setError(message);
+    // } finally {
+    //   setIsLoading(false);
+    // }
   };
 
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
@@ -161,13 +181,13 @@ export default function Login(): React.JSX.Element {
                   >
                     Password
                   </Label>
-                  <a
-                    href="#"
+                  <Link
+                    to="#"
                     className="text-xs font-medium text-emerald-600 hover:text-emerald-700 transition-colors duration-200"
                     tabIndex={-1}
                   >
                     Forgot password?
-                  </a>
+                  </Link>
                 </div>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
@@ -201,8 +221,19 @@ export default function Login(): React.JSX.Element {
               </Button>
             </form>
 
+            {/* Register link */}
+            <p className="text-center text-sm text-slate-500 mt-6">
+              Don&apos;t have an account?{' '}
+              <Link
+                to="/register"
+                className="text-emerald-600 font-medium hover:underline transition-colors duration-200"
+              >
+                Register
+              </Link>
+            </p>
+
             {/* Footer */}
-            <p className="text-center text-xs text-slate-400 mt-8">
+            <p className="text-center text-xs text-slate-400 mt-4">
               VendorBridge ERP &middot; Procurement Management System
             </p>
           </CardContent>
