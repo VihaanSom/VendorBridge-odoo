@@ -1,6 +1,7 @@
-// ── Centralized API helpers ─────────────────────────────────────────
-// All Dev-A routes: Auth, Directory, RFQs.
-// Uses Vite proxy → relative "/api" paths (no CORS issues).
+// ── VendorBridge — Unified API Client ───────────────────────────────
+// Shared fetch helpers with JWT auth for ALL frontend pages.
+// Dev A: Auth, Directory, RFQs
+// Dev B: Quotations, Approvals, Financials, Analytics
 
 const API_BASE = '/api';
 
@@ -127,7 +128,62 @@ async function apiFetch<T>(
   return data as T;
 }
 
-// ── Auth ─────────────────────────────────────────────────────────────
+// ── Token helpers (used by Dev B pages) ─────────────────────────────
+
+export function getToken(): string | null {
+  return localStorage.getItem('token');
+}
+
+export function authHeaders(): Record<string, string> {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+// ── Dev B typed wrappers (used by Quotations, Approvals, etc.) ──────
+
+export async function apiGet<T>(path: string): Promise<T> {
+  return apiFetch<T>(path);
+}
+
+export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  return apiFetch<T>(path, {
+    method: 'POST',
+    body: body ? JSON.stringify(body) : undefined,
+  });
+}
+
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return apiFetch<T>(path, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Fetch a binary blob (e.g. PDF download).
+ * Returns the raw Response so callers can read .blob(), set headers, etc.
+ */
+export async function apiGetBlob(path: string): Promise<Response> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token ?? ''}` },
+  });
+  if (!res.ok) {
+    throw new Error(`GET ${path} failed with status ${res.status}`);
+  }
+  return res;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Dev A — Auth
+// ══════════════════════════════════════════════════════════════════════
 
 export function authLogin(email: string, password: string) {
   return apiFetch<AuthResponse>('/auth/login', {
@@ -173,7 +229,9 @@ export function authMe() {
   return apiFetch<ApiUser>('/auth/me');
 }
 
-// ── Directory ───────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Dev A — Directory
+// ══════════════════════════════════════════════════════════════════════
 
 export function getVendors(category?: string) {
   const params = category ? `?category=${encodeURIComponent(category)}` : '';
@@ -199,7 +257,9 @@ export function getUsers(role?: string) {
   return apiFetch<ApiUser[]>(`/directory/users${params}`);
 }
 
-// ── RFQs ────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+// Dev A — RFQs
+// ══════════════════════════════════════════════════════════════════════
 
 export function getRfqs() {
   return apiFetch<Rfq[]>('/rfqs');
@@ -234,79 +294,4 @@ export function updateRfqStatus(id: string, status: string) {
     method: 'PATCH',
     body: JSON.stringify({ status }),
   });
-// ── VendorBridge API Client ──────────────────────────────────────────
-// Centralised fetch helpers with JWT auth for all frontend pages.
-
-export const API_BASE = 'http://localhost:5000/api';
-
-// ── Token helpers ───────────────────────────────────────────────────
-
-export function getToken(): string | null {
-  return localStorage.getItem('token');
-}
-
-export function authHeaders(): Record<string, string> {
-  const token = getToken();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  return headers;
-}
-
-// ── Typed fetch wrappers ────────────────────────────────────────────
-
-export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'GET',
-    headers: authHeaders(),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error((err as { error?: string }).error ?? `GET ${path} failed`);
-  }
-  return res.json() as Promise<T>;
-}
-
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error((err as { error?: string }).error ?? `POST ${path} failed`);
-  }
-  return res.json() as Promise<T>;
-}
-
-export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'PATCH',
-    headers: authHeaders(),
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error((err as { error?: string }).error ?? `PATCH ${path} failed`);
-  }
-  return res.json() as Promise<T>;
-}
-
-/**
- * Fetch a binary blob (e.g. PDF download).
- * Returns the raw Response so callers can read .blob(), set headers, etc.
- */
-export async function apiGetBlob(path: string): Promise<Response> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'GET',
-    headers: { Authorization: `Bearer ${getToken() ?? ''}` },
-  });
-  if (!res.ok) {
-    throw new Error(`GET ${path} failed with status ${res.status}`);
-  }
-  return res;
 }
