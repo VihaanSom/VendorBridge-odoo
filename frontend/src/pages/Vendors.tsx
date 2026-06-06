@@ -22,7 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { getVendors, type VendorProfile } from '@/lib/api';
+import { getVendors, apiPost, type VendorProfile } from '@/lib/api';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -83,6 +83,8 @@ export default function Vendors(): React.JSX.Element {
   };
 
   const [newVendorForm, setNewVendorForm] = useState<NewVendorForm>(INITIAL_FORM);
+  const [addVendorError, setAddVendorError] = useState<string>('');
+  const [isSaving, setIsSaving] = useState<boolean>(false);
 
   // Fetch vendors from API
   useEffect(() => {
@@ -160,33 +162,33 @@ export default function Vendors(): React.JSX.Element {
     setNewVendorForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  // TODO: BACKEND — Replace this mock insertion with a real call to
-  // POST /api/auth/signup  { role: "VENDOR", email, password: "temp123", companyName, gstNumber, category, contactPhone }
-  // then re-fetch the vendors list via getVendors().
-  const handleAddVendor = (e: React.FormEvent<HTMLFormElement>): void => {
+  const handleAddVendor = async (
+    e: React.FormEvent<HTMLFormElement>
+  ): Promise<void> => {
     e.preventDefault();
+    setAddVendorError('');
+    setIsSaving(true);
 
-    const mockVendor: VendorProfile = {
-      id: `mock-${Date.now()}`,
-      userId: `mock-user-${Date.now()}`,
-      companyName: newVendorForm.companyName,
-      gstNumber: newVendorForm.gstNumber,
-      contactPhone: newVendorForm.contactPhone || null,
-      category: newVendorForm.category,
-      vendorStatus: 'ACTIVE',
-      rating: null,
-      user: {
-        id: `mock-user-${Date.now()}`,
+    try {
+      const created = await apiPost<VendorProfile>('/directory/vendors', {
+        companyName: newVendorForm.companyName,
         email: newVendorForm.email,
-        firstName: null,
-        lastName: null,
-        isActive: true,
-      },
-    };
+        gstNumber: newVendorForm.gstNumber,
+        contactPhone: newVendorForm.contactPhone || undefined,
+        category: newVendorForm.category,
+      });
 
-    setVendors((prev) => [mockVendor, ...prev]);
-    setNewVendorForm(INITIAL_FORM);
-    setIsModalOpen(false);
+      // Prepend the new vendor so the table updates instantly
+      setVendors((prev) => [created, ...prev]);
+      setNewVendorForm(INITIAL_FORM);
+      setIsModalOpen(false);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to add vendor.';
+      setAddVendorError(message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -207,7 +209,13 @@ export default function Vendors(): React.JSX.Element {
               Manage supplier profiles and registrations
             </p>
           </div>
-          <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+          <Dialog open={isModalOpen} onOpenChange={(open) => {
+              setIsModalOpen(open);
+              if (!open) {
+                setAddVendorError('');
+                setNewVendorForm(INITIAL_FORM);
+              }
+            }}>
             <DialogTrigger asChild>
               <Button className="bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-medium rounded-md shadow-sm cursor-pointer transition-all duration-200">
                 <Plus className="w-4 h-4 mr-1.5" />
@@ -223,6 +231,13 @@ export default function Vendors(): React.JSX.Element {
               </DialogHeader>
 
               <form onSubmit={handleAddVendor} className="flex flex-col gap-4 mt-4">
+                {/* Error banner */}
+                {addVendorError && (
+                  <div className="rounded-md bg-rose-50 border border-rose-200 px-3 py-2.5 text-sm text-rose-600 font-medium">
+                    {addVendorError}
+                  </div>
+                )}
+
                 {/* Company Name */}
                 <div className="space-y-1.5">
                   <Label htmlFor="vendor-company" className="text-sm font-medium text-slate-700">
@@ -302,9 +317,17 @@ export default function Vendors(): React.JSX.Element {
                 {/* Submit */}
                 <Button
                   type="submit"
-                  className="w-full h-10 mt-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-semibold rounded-md shadow-sm cursor-pointer transition-all duration-200"
+                  disabled={isSaving}
+                  className="w-full h-10 mt-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-semibold rounded-md shadow-sm cursor-pointer transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Save Vendor
+                  {isSaving ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving…
+                    </span>
+                  ) : (
+                    'Save Vendor'
+                  )}
                 </Button>
               </form>
             </DialogContent>

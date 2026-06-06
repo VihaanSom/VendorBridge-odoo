@@ -1,4 +1,5 @@
 const { Router } = require('express');
+const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const { authenticate, authorize } = require('../middleware/auth');
 const asyncHandler = require('../middleware/asyncHandler');
@@ -8,6 +9,79 @@ const router = Router();
 // All directory routes require authentication
 router.use(authenticate);
 
+// ──────────────────────────────────────────────────────────────
+// POST /vendors — Admin creates a new vendor account
+// ──────────────────────────────────────────────────────────────
+router.post(
+  '/vendors',
+  authorize('ADMIN', 'OFFICER'),
+  asyncHandler(async (req, res) => {
+    const { companyName, email, gstNumber, contactPhone, category } = req.body;
+
+    // --- Validation ---
+    if (!companyName || !email || !gstNumber || !category) {
+      return res
+        .status(400)
+        .json({ error: 'companyName, email, gstNumber, and category are required.' });
+    }
+
+    // Check for duplicate email
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return res.status(409).json({ error: 'A user with this email already exists.' });
+    }
+
+    // Check for duplicate GST number
+    const existingGst = await prisma.vendorProfile.findFirst({
+      where: { gstNumber },
+    });
+    if (existingGst) {
+      return res.status(409).json({ error: 'A vendor with this GST number already exists.' });
+    }
+
+    // Default password for admin-created vendor accounts
+    const DEFAULT_PASSWORD = 'Vendor@123';
+    const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
+
+    // --- Prisma transaction: User + VendorProfile ---
+    const newVendor = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          role: 'VENDOR',
+          firstName: null,
+          lastName: null,
+        },
+      });
+
+      const vendorProfile = await tx.vendorProfile.create({
+        data: {
+          userId: user.id,
+          companyName,
+          gstNumber,
+          category,
+          contactPhone: contactPhone || null,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              isActive: true,
+            },
+          },
+        },
+      });
+
+      return vendorProfile;
+    });
+
+    res.status(201).json(newVendor);
+  })
+);
 // ──────────────────────────────────────────────────────────────
 // GET /users — Admin only
 // ──────────────────────────────────────────────────────────────
