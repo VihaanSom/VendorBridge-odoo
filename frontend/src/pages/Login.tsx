@@ -182,7 +182,7 @@ export default function Login(): React.JSX.Element {
                     Password
                   </Label>
                   <Link
-                    to="#"
+                    to="/forgot-password"
                     className="text-xs font-medium text-emerald-600 hover:text-emerald-700 transition-colors duration-200"
                     tabIndex={-1}
                   >

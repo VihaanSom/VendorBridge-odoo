@@ -11,6 +11,8 @@ import Approvals from './pages/Approvals';
 import InvoiceView from './pages/InvoiceView';
 import ActivityLogs from './pages/ActivityLogs';
 import Reports from './pages/Reports';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 function App(): React.JSX.Element {
   return (
@@ -18,6 +20,8 @@ function App(): React.JSX.Element {
       {/* Auth pages */}
       <Route path="/" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
 
       {/* Dashboard pages (wrapped in DashboardLayout internally) */}
       <Route path="/dashboard" element={<Dashboard />} />

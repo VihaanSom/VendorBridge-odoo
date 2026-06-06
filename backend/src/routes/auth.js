@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
 const { authenticate } = require('../middleware/auth');
+const { sendPasswordResetEmail } = require('../utils/mailer');
 const asyncHandler = require('../middleware/asyncHandler');
 
 const router = Router();
@@ -172,12 +173,18 @@ router.post(
       },
     });
 
-    // Log token to console in dev (no real SMTP configured)
-    console.log('──────────────────────────────────────────');
+    // Send reset email via SMTP (Ethereal in dev, Gmail in prod)
+    const resetLink = `http://localhost:5173/reset-password?token=${resetToken}`;
     console.log('[PASSWORD RESET] Token generated for:', email);
-    console.log('[PASSWORD RESET] Token:', resetToken);
+    console.log('[PASSWORD RESET] Link:', resetLink);
     console.log('[PASSWORD RESET] Expires:', expiresAt.toISOString());
-    console.log('──────────────────────────────────────────');
+
+    try {
+      await sendPasswordResetEmail(email, resetToken);
+    } catch (mailErr) {
+      // Non-fatal: log but don't fail the request
+      console.error('[PASSWORD RESET] Email send failed:', mailErr.message);
+    }
 
     res.json({ message: 'If that email exists, a reset link has been sent.' });
   })
